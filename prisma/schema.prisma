@@ -1,0 +1,643 @@
+// Learnova data model
+//
+// Convention: camelCase fields for TypeScript, mapped down to snake_case columns
+// and plural table names via @map/@@map. That is the Postgres convention, so plain
+// SQL never has to quote identifiers.
+//
+// Design notes: docs/class-diagram-v2.md
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  MENTOR
+  MENTEE
+}
+
+/// Course difficulty. Kept separate from SkillLevel even though the values match:
+/// adding a tier for skills should not silently add one for courses.
+enum CourseLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+/// Self-assessed level of a mentee.
+enum SkillLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum CourseStatus {
+  DRAFT
+  PENDING_APPROVAL
+  PUBLISHED
+  REJECTED
+}
+
+enum EnrollmentStatus {
+  ENROLLED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum ConversationType {
+  COURSE
+  PRIVATE
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  FILE
+}
+
+/// Nơi thật sự chứa byte của một file đính kèm. Ảnh và video đi Cloudinary vì cần
+/// CDN, transform và ảnh thumbnail sinh sẵn; mọi loại còn lại (pdf, docx, zip...)
+/// đi Supabase Storage, nơi rẻ hơn và không tính theo "credit" như Cloudinary.
+///
+/// Lưu vào DB chứ không suy ra từ mimeType: quy tắc phân loại có thể đổi, còn file
+/// đã nằm ở đâu thì nằm mãi ở đó, và cột này là thứ duy nhất nói cho lệnh xoá biết
+/// phải gọi API của bên nào.
+enum StorageProvider {
+  CLOUDINARY
+  SUPABASE
+}
+
+enum MeetingStatus {
+  SCHEDULED
+  LIVE
+  ENDED
+  CANCELLED
+}
+
+enum MeetingParticipantRole {
+  HOST
+  PARTICIPANT
+}
+
+/// Các phần cấu thành một bài học, theo đúng khung mà tài liệu giảng dạy đang dùng.
+///
+/// Sắp xếp thật sự nằm ở LessonSection.orderIndex, không ở thứ tự khai báo enum:
+/// một bài có thể có nhiều mục EXAMPLE xen giữa các mục khác.
+enum LessonSectionKind {
+  /// Mục tiêu học tập.
+  OBJECTIVES
+  /// Định nghĩa, phần lý thuyết chính.
+  DEFINITION
+  /// Cú pháp.
+  SYNTAX
+  /// Ví dụ minh hoạ. Là mục duy nhất lặp lại nhiều lần trong một bài.
+  EXAMPLE
+  /// Ghi chú, lưu ý thêm.
+  NOTES
+  /// Ví dụ áp dụng thực tế.
+  REAL_WORLD
+  /// Lỗi thường gặp.
+  MISTAKES
+  /// Tóm tắt.
+  SUMMARY
+}
+
+// ---------------------------------------------------------------------------
+// Users
+// ---------------------------------------------------------------------------
+
+model User {
+  userId       String  @id @default(uuid(7)) @map("user_id") @db.Uuid
+  username     String  @unique @db.VarChar(100)
+  /// Always stored lowercase. A migration adds a unique index on LOWER(email).
+  email        String  @unique @db.VarChar(255)
+  /// bcrypt always produces exactly 60 characters.
+  passwordHash String  @map("password_hash") @db.VarChar(60)
+  role         Role    @default(MENTEE)
+  /// Full URL returned by the third-party storage service.
+  avatarUrl    String? @map("avatar_url") @db.Text
+  bio          String? @db.Text
+  isActive     Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  mentor                  Mentor?
+  mentee                  Mentee?
+  sessions                Session[]
+  reviewedCourses         Course[]                  @relation("CourseReviewer")
+  conversationParticipant ConversationParticipant[]
+  messages                Message[]
+  hostedMeetings          MeetingRoom[]
+  meetingParticipations   MeetingParticipant[]
+
+  @@map("users")
+}
+
+/// One-to-one with User. userId is both primary and foreign key, which is how SQL
+/// expresses inheritance and also prevents a person having two mentor profiles.
+model Mentor {
+  userId String @id @map("user_id") @db.Uuid
+
+  /// Display only. Allowed values are a fixed list in code: courses are searched by
+  /// title, not filtered by skill, so this needs no foreign key.
+  ///
+  /// There IS a `Skill` catalogue now, but it exists to score mentee competency, not
+  /// to tag mentors. Pointing this column at it would force every mentor's self
+  /// description through a taxonomy built for a different purpose.
+  expertise       String[] @default([])
+  experienceYears Int?     @map("experience_years")
+  /// Having a mentor profile is not the same as being allowed to publish courses.
+  isApproved      Boolean  @default(false) @map("is_approved")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user    User     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  courses Course[]
+
+  @@map("mentors")
+}
+
+model Mentee {
+  userId String @id @map("user_id") @db.Uuid
+
+  /// Self declared at sign-up, one label for the whole person.
+  ///
+  /// Kept for onboarding and mentor matching only. Once the mentee has submitted an
+  /// entry assessment, the per-skill profile (`Skill` + attempt scores) is what the
+  /// UI must show — this column is not the competency profile and must not be
+  /// displayed alongside it as if it were a second opinion.
+  skillLevel SkillLevel? @map("skill_level")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user        User         @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  enrollments Enrollment[]
+
+  @@map("mentees")
+}
+
+/// One row per signed-in device.
+///
+/// Rotation is a single UPDATE: the current hash moves down into previousTokenHash
+/// and a new one is generated. Reusing previousTokenHash after the grace window
+/// means the token leaked, so the session is revoked. See docs/class-diagram-v2.md
+model Session {
+  sessionId String @id @default(uuid(7)) @map("session_id") @db.Uuid
+  userId    String @map("user_id") @db.Uuid
+
+  /// SHA-256 hex, not bcrypt: the token is 256 random bits so there is nothing to
+  /// brute force, and bcrypt salts every call so it could not be looked up by index.
+  refreshTokenHash  String  @unique @map("refresh_token_hash") @db.Char(64)
+  previousTokenHash String? @unique @map("previous_token_hash") @db.Char(64)
+
+  deviceName String? @map("device_name") @db.VarChar(100)
+  ipAddress  String? @map("ip_address") @db.VarChar(45)
+  userAgent  String? @map("user_agent") @db.VarChar(255)
+
+  /// Fixed at login and never extended on refresh. Otherwise an actively used
+  /// session would live forever, and so would a stolen token.
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  lastUsedAt DateTime  @default(now()) @map("last_used_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ---------------------------------------------------------------------------
+// Courses
+// ---------------------------------------------------------------------------
+
+model Course {
+  courseId String @id @default(uuid(7)) @map("course_id") @db.Uuid
+  mentorId String @map("mentor_id") @db.Uuid
+
+  title         String       @db.VarChar(200)
+  description   String?      @db.Text
+  coverImageUrl String?      @map("cover_image_url") @db.Text
+  level         CourseLevel  @default(BEGINNER)
+  status        CourseStatus @default(DRAFT)
+
+  /// Vị trí trong lộ trình "NodeJS Backend Developer", đếm từ 1.
+  ///
+  /// null = khoá không thuộc lộ trình (mentor tự soạn, khoá nháp). Lộ trình là một dãy
+  /// cố định giống nhau với mọi người học — cá nhân hoá chỉ là bỏ bớt chương dựa trên
+  /// hồ sơ năng lực, không đảo thứ tự và không thêm bớt khoá.
+  ///
+  /// `@unique` chặn hai khoá cùng giữ một vị trí; Postgres cho phép nhiều NULL nên
+  /// khoá ngoài lộ trình không bị ảnh hưởng.
+  ///
+  /// Tên thư mục trong content/courses đánh số trùng với cột này cho dễ đọc, nhưng
+  /// tên thư mục không phải nguồn sự thật — cột này mới là.
+  pathOrder Int? @unique @map("path_order")
+
+  /// Who reviewed it, when, and why it was rejected. Without these a rejected
+  /// mentor has no idea what to fix.
+  reviewedById    String?   @map("reviewed_by_id") @db.Uuid
+  reviewedAt      DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  rejectionReason String?   @map("rejection_reason") @db.Text
+  publishedAt     DateTime? @map("published_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  mentor       Mentor         @relation(fields: [mentorId], references: [userId], onDelete: Restrict)
+  reviewedBy   User?          @relation("CourseReviewer", fields: [reviewedById], references: [userId], onDelete: SetNull)
+  chapters     Chapter[]
+  enrollments  Enrollment[]
+  conversation Conversation[]
+  meetingRooms MeetingRoom[]
+
+  @@index([mentorId])
+  @@index([status, level])
+  @@map("courses")
+}
+
+model Chapter {
+  chapterId String @id @default(uuid(7)) @map("chapter_id") @db.Uuid
+  courseId  String @map("course_id") @db.Uuid
+
+  title       String  @db.VarChar(200)
+  description String? @db.Text
+  orderIndex  Int     @map("order_index")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  course  Course   @relation(fields: [courseId], references: [courseId], onDelete: Cascade)
+  lessons Lesson[]
+  skills  SkillChapter[]
+
+  @@unique([courseId, orderIndex])
+  @@map("chapters")
+}
+
+/// Danh mục kỹ năng dùng để chấm hồ sơ năng lực của mentee.
+///
+/// Đây là lần đảo hướng CÓ CHỦ Ý so với ghi chú ở `Mentor.expertise` — chỗ đó nói
+/// không cần bảng kỹ năng vì khoá học được tìm theo tiêu đề. Nhận định đó vẫn đúng
+/// cho TÌM KIẾM. ĐO NĂNG LỰC là bài toán khác: phải có một danh mục ổn định để điểm
+/// đầu vào và điểm đầu ra so sánh được với nhau.
+model Skill {
+  skillId String @id @default(uuid(7)) @map("skill_id") @db.Uuid
+
+  /// Khoá tự nhiên, ví dụ `js-async`. Mọi UUID băm từ chuỗi này nên **không đổi**.
+  code String @unique @db.VarChar(40)
+  name String @db.VarChar(120)
+  /// Nhóm hiển thị trên biểu đồ hồ sơ: 'JavaScript', 'Database'…
+  domain     String @db.VarChar(60)
+  orderIndex Int    @unique @map("order_index")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  chapters SkillChapter[]
+
+  @@map("skills")
+}
+
+/// Gán kỹ năng ở mức CHƯƠNG, không phải mức bài.
+///
+/// Đơn vị bỏ qua trong lộ trình là cả chương, nên gán tới từng bài chỉ làm phồng số câu
+/// hỏi trong đề đầu vào mà không đổi được điều gì. Bảng này vì vậy chỉ có 26 dòng —
+/// khai sao lưu vậy, không có bước sinh dữ liệu nào để sai.
+///
+/// "Bài nào thuộc kỹ năng X" đi qua một join: skills ⋈ skill_chapters ⋈ chapters ⋈ lessons.
+///
+/// Vẫn để nhiều-nhiều dù hiện tại mỗi chương chỉ mang đúng một kỹ năng: nới ràng buộc
+/// về sau tốn một migration, còn siết lại thì không mất gì.
+model SkillChapter {
+  skillId   String @map("skill_id") @db.Uuid
+  chapterId String @map("chapter_id") @db.Uuid
+
+  skill   Skill   @relation(fields: [skillId], references: [skillId], onDelete: Cascade)
+  chapter Chapter @relation(fields: [chapterId], references: [chapterId], onDelete: Cascade)
+
+  @@id([skillId, chapterId])
+  @@index([chapterId])
+  @@map("skill_chapters")
+}
+
+model Lesson {
+  lessonId  String @id @default(uuid(7)) @map("lesson_id") @db.Uuid
+  chapterId String @map("chapter_id") @db.Uuid
+
+  title       String  @db.VarChar(200)
+  description String? @db.Text
+  videoUrl    String? @map("video_url") @db.Text
+  /// Tổng thời lượng dự kiến của cả bài, tính bằng phút.
+  durationMinutes Int @default(0) @map("duration_minutes")
+  orderIndex      Int @map("order_index")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  chapter   Chapter          @relation(fields: [chapterId], references: [chapterId], onDelete: Cascade)
+  /// Nội dung bài học nằm ở đây, không nằm trực tiếp trên Lesson. Xem LessonSection.
+  sections  LessonSection[]
+  quiz      QuizQuestion[]
+  documents LessonDocument[]
+  progress  LessonProgress[]
+
+  @@unique([chapterId, orderIndex])
+  @@map("lessons")
+}
+
+/// Một phần nội dung của bài học.
+///
+/// Trước đây toàn bộ bài nằm trong một cột Markdown duy nhất. Tách ra vì cục
+/// Markdown liền khối không cho phép hiển thị từng phần riêng trên giao diện
+/// (tab lý thuyết / ví dụ / ghi chú), cũng không tìm kiếm riêng trong phần định
+/// nghĩa được. Nội dung mỗi mục VẪN là Markdown — chỉ là đã cắt nhỏ.
+model LessonSection {
+  sectionId String @id @default(uuid(7)) @map("section_id") @db.Uuid
+  lessonId  String @map("lesson_id") @db.Uuid
+
+  kind LessonSectionKind
+  /// Tiêu đề gốc trong tài liệu, ví dụ "Example 3 - Find Unique". Giữ lại vì riêng
+  /// `kind = EXAMPLE` không phân biệt được các ví dụ với nhau.
+  heading    String? @db.VarChar(300)
+  contentMd  String  @map("content_md") @db.Text
+  orderIndex Int     @map("order_index")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  lesson Lesson @relation(fields: [lessonId], references: [lessonId], onDelete: Cascade)
+
+  @@unique([lessonId, orderIndex])
+  @@index([lessonId, kind])
+  @@map("lesson_sections")
+}
+
+/// Câu hỏi trắc nghiệm cuối bài.
+///
+/// Tách khỏi nội dung Markdown vì đáp án đúng phải được giấu. Khi đề và đáp án
+/// cùng nằm trong một chuỗi Markdown, hiển thị bài học là lộ luôn đáp án.
+model QuizQuestion {
+  questionId String @id @default(uuid(7)) @map("question_id") @db.Uuid
+  lessonId   String @map("lesson_id") @db.Uuid
+
+  /// Đề bài, dạng Markdown vì nhiều câu hỏi có kèm khối code.
+  promptMd   String @map("prompt_md") @db.Text
+  /// Giải thích vì sao đáp án đó đúng. Chỉ trả về sau khi học viên đã nộp bài.
+  explanationMd String? @map("explanation_md") @db.Text
+  orderIndex Int    @map("order_index")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  lesson  Lesson       @relation(fields: [lessonId], references: [lessonId], onDelete: Cascade)
+  options QuizOption[]
+
+  @@unique([lessonId, orderIndex])
+  @@map("quiz_questions")
+}
+
+model QuizOption {
+  optionId   String @id @default(uuid(7)) @map("option_id") @db.Uuid
+  questionId String @map("question_id") @db.Uuid
+
+  /// Nhãn hiển thị: A, B, C, D.
+  label     String  @db.Char(1)
+  contentMd String  @map("content_md") @db.Text
+  /// KHÔNG BAO GIỜ được lọt vào response trả cho học viên. Tầng service phải bỏ
+  /// cột này khi dựng DTO; việc chấm điểm diễn ra ở phía server.
+  isCorrect Boolean @default(false) @map("is_correct")
+
+  question QuizQuestion @relation(fields: [questionId], references: [questionId], onDelete: Cascade)
+
+  @@unique([questionId, label])
+  @@map("quiz_options")
+}
+
+model LessonDocument {
+  documentId String @id @default(uuid(7)) @map("document_id") @db.Uuid
+  lessonId   String @map("lesson_id") @db.Uuid
+
+  fileName String @map("file_name") @db.VarChar(255)
+  fileUrl  String @map("file_url") @db.Text
+  fileType String @map("file_type") @db.VarChar(100)
+  /// Bytes.
+  fileSize Int    @map("file_size")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  lesson Lesson @relation(fields: [lessonId], references: [lessonId], onDelete: Cascade)
+
+  @@index([lessonId])
+  @@map("lesson_documents")
+}
+
+// ---------------------------------------------------------------------------
+// Learning progress
+// ---------------------------------------------------------------------------
+
+model Enrollment {
+  enrollmentId String @id @default(uuid(7)) @map("enrollment_id") @db.Uuid
+  courseId     String @map("course_id") @db.Uuid
+  menteeId     String @map("mentee_id") @db.Uuid
+
+  /// Derived from LessonProgress and stored, not an independent source of truth.
+  /// Every progress write must recompute this in the same transaction.
+  status      EnrollmentStatus @default(ENROLLED)
+  enrolledAt  DateTime         @default(now()) @map("enrolled_at") @db.Timestamptz(6)
+  completedAt DateTime?        @map("completed_at") @db.Timestamptz(6)
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  course   Course           @relation(fields: [courseId], references: [courseId], onDelete: Restrict)
+  mentee   Mentee           @relation(fields: [menteeId], references: [userId], onDelete: Cascade)
+  progress LessonProgress[]
+
+  @@unique([courseId, menteeId])
+  @@index([menteeId])
+  @@map("enrollments")
+}
+
+/// Keyed on enrollmentId rather than menteeId: dropping a course and enrolling
+/// again must not inherit the old progress.
+model LessonProgress {
+  progressId   String @id @default(uuid(7)) @map("progress_id") @db.Uuid
+  enrollmentId String @map("enrollment_id") @db.Uuid
+  lessonId     String @map("lesson_id") @db.Uuid
+
+  isCompleted         Boolean   @default(false) @map("is_completed")
+  /// Playback position in seconds, for resuming a video.
+  lastPositionSeconds Int       @default(0) @map("last_position_seconds")
+  completedAt         DateTime? @map("completed_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [enrollmentId], onDelete: Cascade)
+  lesson     Lesson     @relation(fields: [lessonId], references: [lessonId], onDelete: Cascade)
+
+  @@unique([enrollmentId, lessonId])
+  @@index([enrollmentId])
+  @@map("lesson_progress")
+}
+
+// ---------------------------------------------------------------------------
+// Messenger
+//
+// Direct messaging only. Meeting-room chat is realtime, broadcast over WebSocket
+// and never persisted, so it has no table here.
+// ---------------------------------------------------------------------------
+
+model Conversation {
+  conversationId String           @id @default(uuid(7)) @map("conversation_id") @db.Uuid
+  type           ConversationType
+  courseId       String?          @map("course_id") @db.Uuid
+
+  /// For 1-1 chats: min(userId) + ":" + max(userId). Sorting before joining makes
+  /// A:B and B:A produce the same string, so UNIQUE blocks duplicate conversations.
+  /// NULL for group chats; Postgres allows many NULLs in a UNIQUE column.
+  directKey String? @unique @map("direct_key") @db.VarChar(80)
+
+  lastMessageAt DateTime? @map("last_message_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  course       Course?                   @relation(fields: [courseId], references: [courseId], onDelete: Cascade)
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@index([courseId])
+  @@index([lastMessageAt])
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  conversationId String @map("conversation_id") @db.Uuid
+  userId         String @map("user_id") @db.Uuid
+
+  joinedAt   DateTime  @default(now()) @map("joined_at") @db.Timestamptz(6)
+  lastReadAt DateTime? @map("last_read_at") @db.Timestamptz(6)
+
+  conversation Conversation @relation(fields: [conversationId], references: [conversationId], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_participants")
+}
+
+model Message {
+  messageId      String @id @default(uuid(7)) @map("message_id") @db.Uuid
+  conversationId String @map("conversation_id") @db.Uuid
+  senderId       String @map("sender_id") @db.Uuid
+
+  /// TEXT: the message body. IMAGE/VIDEO/FILE: the public URL of the uploaded file.
+  content     String      @db.Text
+  messageType MessageType @default(TEXT) @map("message_type")
+
+  /// Tất cả các cột dưới đây NULL với message TEXT và có giá trị với message đính
+  /// kèm. Một message chỉ mang đúng một file — gửi ba ảnh là ba message, đúng như
+  /// cách Messenger/Zalo xếp bong bóng chat.
+
+  /// Tên file gốc lúc người gửi chọn. Bắt buộc phải lưu: `content` là URL chứa UUID
+  /// nên không đọc ra được "bao-cao-cuoi-ky.pdf", mà đó lại chính là thứ giao diện
+  /// cần hiển thị và trình duyệt cần đặt tên khi tải về.
+  attachmentName String? @map("attachment_name") @db.VarChar(255)
+
+  /// MIME type do CHÍNH nhà cung cấp báo lại sau khi file đã lên, không phải giá trị
+  /// client khai lúc xin chữ ký. Xem ChatService.sendAttachmentMessage.
+  attachmentMime String? @map("attachment_mime") @db.VarChar(150)
+
+  /// Kích thước thật, tính bằng byte. Int4 đủ tới 2GB, xa hơn mọi hạn mức đang đặt.
+  attachmentSize Int? @map("attachment_size")
+
+  storageProvider StorageProvider? @map("storage_provider")
+
+  /// `public_id` bên Cloudinary, hoặc object path bên Supabase. Không suy ra được từ
+  /// URL một cách chắc chắn (Cloudinary chèn version và đuôi file vào URL), nên phải
+  /// lưu riêng — đây là tham số của lệnh xoá file khi message bị thu hồi.
+  ///
+  /// UNIQUE để chống replay: một upload ticket chỉ đổi được thành đúng một message,
+  /// bấm "gửi" hai lần không tạo ra hai bong bóng trỏ về cùng một file.
+  storageKey String? @unique @map("storage_key") @db.Text
+
+  /// Ảnh xem trước do Cloudinary sinh (ảnh thu nhỏ, hoặc khung hình đầu của video).
+  /// NULL với file thường — Supabase không sinh thumbnail.
+  thumbnailUrl String? @map("thumbnail_url") @db.Text
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  conversation Conversation @relation(fields: [conversationId], references: [conversationId], onDelete: Cascade)
+  /// Restrict: a user with messages cannot be deleted. Deactivate via User.isActive
+  /// instead.
+  sender       User         @relation(fields: [senderId], references: [userId], onDelete: Restrict)
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+  @@map("messages")
+}
+
+// ---------------------------------------------------------------------------
+// Meeting rooms
+// ---------------------------------------------------------------------------
+
+model MeetingRoom {
+  meetingRoomId String  @id @default(uuid(7)) @map("meeting_room_id") @db.Uuid
+  /// Nullable: a 1-1 mentoring call belongs to no course.
+  courseId      String? @map("course_id") @db.Uuid
+  hostId        String  @map("host_id") @db.Uuid
+
+  title       String        @db.VarChar(200)
+  description String?       @db.Text
+  meetingCode String        @unique @map("meeting_code") @db.VarChar(20)
+  status      MeetingStatus @default(SCHEDULED)
+
+  scheduledStartAt DateTime  @map("scheduled_start_at") @db.Timestamptz(6)
+  /// Extending a room means updating this column. The auto-close job scans
+  /// status = LIVE AND scheduledEndAt < now().
+  scheduledEndAt   DateTime  @map("scheduled_end_at") @db.Timestamptz(6)
+  actualStartAt    DateTime? @map("actual_start_at") @db.Timestamptz(6)
+  actualEndAt      DateTime? @map("actual_end_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  course       Course?              @relation(fields: [courseId], references: [courseId], onDelete: SetNull)
+  host         User                 @relation(fields: [hostId], references: [userId], onDelete: Restrict)
+  participants MeetingParticipant[]
+
+  @@index([courseId])
+  @@index([hostId])
+  @@index([status, scheduledEndAt])
+  @@map("meeting_rooms")
+}
+
+model MeetingParticipant {
+  meetingRoomId String @map("meeting_room_id") @db.Uuid
+  userId        String @map("user_id") @db.Uuid
+
+  role      MeetingParticipantRole @default(PARTICIPANT)
+  invitedAt DateTime               @default(now()) @map("invited_at") @db.Timestamptz(6)
+  /// invitedAt records who was invited; joinedAt/leftAt record who actually showed
+  /// up and for how long.
+  joinedAt  DateTime?              @map("joined_at") @db.Timestamptz(6)
+  leftAt    DateTime?              @map("left_at") @db.Timestamptz(6)
+
+  meetingRoom MeetingRoom @relation(fields: [meetingRoomId], references: [meetingRoomId], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([meetingRoomId, userId])
+  @@index([userId])
+  @@map("meeting_participants")
+}

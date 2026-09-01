@@ -1,0 +1,36 @@
+# Tùy chọn. Máy đang có sẵn PostgreSQL 17 nên không bắt buộc dùng file này —
+# nó có ở đây để người khác clone repo về là chạy được ngay mà không phải cài Postgres.
+#
+#   docker compose up -d      khởi động
+#   docker compose down       dừng, giữ nguyên dữ liệu
+#   docker compose down -v    dừng và XÓA SẠCH dữ liệu
+#
+# Cổng ánh xạ ra 5433 chứ không phải 5432, để không đụng bản PostgreSQL cài sẵn trên
+# máy. Nếu dùng container thì sửa DATABASE_URL trong .env sang cổng 5433.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: learnova-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: learnova
+      # Bắt buộc dùng mật khẩu ngay cả khi kết nối từ trong container.
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    ports:
+      - '5433:5432'
+    volumes:
+      - learnova_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Không có healthcheck thì `docker compose up -d` trả về ngay khi container
+      # khởi động, còn Postgres thì chưa sẵn sàng nhận kết nối — migration chạy
+      # ngay sau đó sẽ lỗi "connection refused".
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d learnova']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  learnova_pgdata:

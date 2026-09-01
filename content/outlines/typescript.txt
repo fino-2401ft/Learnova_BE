@@ -1,0 +1,31 @@
+# Đề cương khoá TypeScript.
+# Sinh khung: npm run course:scaffold -- content/outlines/typescript.txt
+#
+# Dòng bài học: <tiêu đề> | <số phút> | <độ khó>
+
+course: TypeScript
+dir: course-02-typescript
+slug: ts
+
+module: Type System | module-01-type-system
+  Primitive Types | 25 | Beginner
+  Union và Intersection | 30 | Beginner
+  Type Alias | 25 | Beginner
+  Literal Types | 25 | Beginner
+
+module: Object-Oriented Programming | module-02-oop
+  Class | 35 | Beginner
+  Interface | 30 | Beginner
+  Inheritance | 30 | Intermediate
+  Abstract Class | 30 | Intermediate
+
+module: Advanced TypeScript | module-03-advanced
+  Generic | 40 | Intermediate
+  Enum | 25 | Beginner
+  Decorator | 40 | Intermediate
+  Utility Types | 35 | Intermediate
+
+module: TypeScript Project | module-04-project
+  tsconfig | 30 | Beginner
+  Module và Namespace | 30 | Intermediate
+  Cấu trúc dự án | 35 | Intermediate

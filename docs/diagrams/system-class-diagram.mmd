@@ -1,0 +1,271 @@
+---
+config:
+  layout: elk
+  elk:
+    mergeEdges: false
+    nodePlacementStrategy: BRANDES_KOEPF
+  theme: base
+  themeVariables:
+    primaryColor: "#E8EEF9"
+    primaryTextColor: "#16191F"
+    primaryBorderColor: "#7B93C4"
+    lineColor: "#4A5A78"
+    fontSize: "14px"
+  class:
+    hideEmptyMembersBox: true
+    htmlLabels: false
+---
+classDiagram
+    direction LR
+
+    class User {
+        +UUID userId
+        +String username
+        +String email
+        +String passwordHash
+        +Role role
+        +String avatarUrl
+        +String bio
+        +Boolean isActive
+        +DateTime createdAt
+        +DateTime updatedAt
+    }
+
+    class Mentor {
+        +UUID userId
+        +String[] expertise
+        +Integer experienceYears
+        +Boolean isApproved
+        +DateTime createdAt
+        +DateTime updatedAt
+    }
+
+    class Mentee {
+        +UUID userId
+        +SkillLevel skillLevel
+        +DateTime createdAt
+        +DateTime updatedAt
+    }
+
+    class Session {
+        +UUID sessionId
+        +UUID userId
+        +String refreshTokenHash
+        +String previousTokenHash
+        +String deviceName
+        +String ipAddress
+        +String userAgent
+        +DateTime expiresAt
+        +DateTime lastUsedAt
+        +DateTime revokedAt
+        +DateTime createdAt
+    }
+
+    class Course {
+        +UUID courseId
+        +UUID mentorId
+        +String title
+        +String description
+        +String coverImageUrl
+        +CourseLevel level
+        +CourseStatus status
+        +UUID reviewedById
+        +DateTime reviewedAt
+        +String rejectionReason
+        +DateTime publishedAt
+        +DateTime createdAt
+        +DateTime updatedAt
+    }
+
+    class Chapter {
+        +UUID chapterId
+        +UUID courseId
+        +String title
+        +String description
+        +Integer orderIndex
+        +DateTime createdAt
+        +DateTime updatedAt
+    }
+
+    class Lesson {
+        +UUID lessonId
+        +UUID chapterId
+        +String title
+        +String description
+        +String contentMd
+        +String videoUrl
+        +Integer durationMinutes
+        +Integer orderIndex
+        +DateTime createdAt
+        +DateTime updatedAt
+    }
+
+    class LessonDocument {
+        +UUID documentId
+        +UUID lessonId
+        +String fileName
+        +String fileUrl
+        +String fileType
+        +Integer fileSize
+        +DateTime createdAt
+    }
+
+    class Enrollment {
+        +UUID enrollmentId
+        +UUID courseId
+        +UUID menteeId
+        +EnrollmentStatus status
+        +DateTime enrolledAt
+        +DateTime completedAt
+        +DateTime updatedAt
+    }
+
+    class LessonProgress {
+        +UUID progressId
+        +UUID enrollmentId
+        +UUID lessonId
+        +Boolean isCompleted
+        +Integer lastPositionSeconds
+        +DateTime completedAt
+        +DateTime updatedAt
+    }
+
+    class Conversation {
+        +UUID conversationId
+        +ConversationType type
+        +UUID courseId
+        +String directKey
+        +DateTime lastMessageAt
+        +DateTime createdAt
+    }
+
+    class ConversationParticipant {
+        +UUID conversationId
+        +UUID userId
+        +DateTime joinedAt
+        +DateTime lastReadAt
+    }
+
+    class Message {
+        +UUID messageId
+        +UUID conversationId
+        +UUID senderId
+        +String content
+        +MessageType messageType
+        +DateTime createdAt
+        +DateTime updatedAt
+        +DateTime deletedAt
+    }
+
+    class MeetingRoom {
+        +UUID meetingRoomId
+        +UUID courseId
+        +UUID hostId
+        +String title
+        +String description
+        +String meetingCode
+        +MeetingStatus status
+        +DateTime scheduledStartAt
+        +DateTime scheduledEndAt
+        +DateTime actualStartAt
+        +DateTime actualEndAt
+        +DateTime createdAt
+        +DateTime updatedAt
+    }
+
+    class MeetingParticipant {
+        +UUID meetingRoomId
+        +UUID userId
+        +MeetingParticipantRole role
+        +DateTime invitedAt
+        +DateTime joinedAt
+        +DateTime leftAt
+    }
+
+    class Role {
+        <<enumeration>>
+        +ADMIN
+        +MENTOR
+        +MENTEE
+    }
+
+    class CourseLevel {
+        <<enumeration>>
+        +BEGINNER
+        +INTERMEDIATE
+        +ADVANCED
+    }
+
+    class SkillLevel {
+        <<enumeration>>
+        +BEGINNER
+        +INTERMEDIATE
+        +ADVANCED
+    }
+
+    class CourseStatus {
+        <<enumeration>>
+        +DRAFT
+        +PENDING_APPROVAL
+        +PUBLISHED
+        +REJECTED
+    }
+
+    class EnrollmentStatus {
+        <<enumeration>>
+        +ENROLLED
+        +IN_PROGRESS
+        +COMPLETED
+    }
+
+    class ConversationType {
+        <<enumeration>>
+        +COURSE
+        +PRIVATE
+    }
+
+    class MessageType {
+        <<enumeration>>
+        +TEXT
+        +IMAGE
+        +FILE
+    }
+
+    class MeetingStatus {
+        <<enumeration>>
+        +SCHEDULED
+        +LIVE
+        +ENDED
+        +CANCELLED
+    }
+
+    class MeetingParticipantRole {
+        <<enumeration>>
+        +HOST
+        +PARTICIPANT
+    }
+
+    User <|-- Mentor
+    User <|-- Mentee
+
+    User "1" --> "0..*" Session : có
+    Mentor "1" --> "0..*" Course : tạo
+    Mentee "1" --> "0..*" Enrollment : đăng ký
+
+    Course "1" --> "0..*" Chapter : gồm
+    Chapter "1" --> "0..*" Lesson : gồm
+    Lesson "1" --> "0..*" LessonDocument : đính kèm
+    Course "1" --> "0..*" Enrollment : có
+    Enrollment "1" --> "0..*" LessonProgress : theo dõi
+    Lesson "1" --> "0..*" LessonProgress : được ghi nhận
+
+    Course "0..1" --> "0..*" Conversation : nhóm chat
+    Conversation "1" --> "2..*" ConversationParticipant : gồm
+    Conversation "1" --> "0..*" Message : chứa
+    User "1" --> "0..*" ConversationParticipant : tham gia
+    User "1" --> "0..*" Message : gửi
+
+    Course "0..1" --> "0..*" MeetingRoom : thuộc
+    User "1" --> "0..*" MeetingRoom : chủ trì
+    MeetingRoom "1" --> "1..*" MeetingParticipant : gồm
+    User "1" --> "0..*" MeetingParticipant : được mời

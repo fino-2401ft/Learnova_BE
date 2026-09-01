@@ -1,0 +1,871 @@
+openapi: 3.1.0
+
+info:
+  title: Learnova API
+  version: 0.1.0
+  description: |
+    API của Learnova — nền tảng học tập kết nối mentor và mentee.
+
+    Tài liệu này được viết tay và **không** sinh từ decorator trong source. Khi
+    controller hay DTO đổi, phải sửa file này bằng tay.
+
+    ## Định dạng phản hồi
+
+    Mọi phản hồi thành công đều được `TransformInterceptor` bọc lại:
+
+    ```json
+    { "success": true, "data": { } }
+    ```
+
+    Ngoại lệ duy nhất là `204 No Content` (logout) — không có body.
+
+    Mọi lỗi đều đi qua `AllExceptionsFilter` / `PrismaExceptionFilter` và có cùng
+    một hình dạng (xem schema `ErrorResponse`). Client nên rẽ nhánh theo trường
+    `code`, **không** so khớp `message` — phần chữ có thể đổi bất cứ lúc nào.
+
+    ## Xác thực
+
+    Hệ thống dùng hai token tách biệt:
+
+    | Token | Nơi chứa | Vòng đời | Ai gửi |
+    |---|---|---|---|
+    | Access token (JWT) | Header `Authorization: Bearer <token>` | `JWT_ACCESS_TTL`, mặc định 900s | Client tự gắn vào mỗi request |
+    | Refresh token (chuỗi ngẫu nhiên) | Cookie `httpOnly`, mặc định tên `learnova_rt` | `REFRESH_TTL`, mặc định 30 ngày | Trình duyệt gửi tự động |
+
+    Refresh token **không bao giờ** xuất hiện trong body. Nó được set qua header
+    `Set-Cookie` với `path=/api/v1/auth`, nên trình duyệt chỉ gửi kèm cho đúng
+    nhóm route này.
+
+    Refresh token bị **xoay vòng** mỗi lần gọi `/auth/refresh`: token cũ chết
+    ngay. Dùng lại token đã xoay (ngoài khoảng ân hạn 10 giây dành cho request
+    trùng lặp) bị coi là dấu hiệu bị đánh cắp — toàn bộ phiên bị thu hồi và server
+    trả `TOKEN_REUSE_DETECTED`.
+
+    Vì cookie là `httpOnly` và cross-origin, frontend phải gọi với
+    `credentials: 'include'` (fetch) hoặc `withCredentials: true` (axios).
+
+    ## Giới hạn tần suất
+
+    - Toàn cục: **120 request / 60 giây** cho mỗi IP.
+    - `POST /auth/login`: siết còn **5 request / 60 giây** — đây là endpoint đáng
+      để dò mật khẩu nhất.
+
+    Vượt giới hạn trả `429` với `code: RATE_LIMITED`.
+
+    ## Validation
+
+    `ValidationPipe` chạy ở chế độ `whitelist` + `forbidNonWhitelisted`. Gửi thừa
+    một field không có trong DTO sẽ bị **từ chối** (400), không phải bị bỏ qua im
+    lặng. Chi tiết từng field nằm trong mảng `details`.
+
+  contact:
+    name: Learnova Backend
+  license:
+    name: UNLICENSED
+
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Máy phát triển cục bộ
+  - url: '{protocol}://{host}/api/v1'
+    description: Môi trường tự khai báo
+    variables:
+      protocol:
+        default: https
+        enum: [http, https]
+      host:
+        default: api.learnova.example
+
+tags:
+  - name: Auth
+    description: Đăng ký, đăng nhập, xoay vòng token và thông tin phiên hiện tại.
+  - name: Health
+    description: Kiểm tra tình trạng dịch vụ và kết nối cơ sở dữ liệu.
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Kiểm tra tình trạng dịch vụ
+      description: |
+        Chạy một truy vấn `SELECT 1` thật xuống PostgreSQL. Trả `200` chỉ khi
+        database còn phản hồi — một endpoint trả `{ "status": "ok" }` tĩnh sẽ vẫn
+        xanh khi database đã chết, điều đó còn tệ hơn là không có health check.
+
+        Dùng cho liveness/readiness probe của container orchestrator.
+      operationId: checkHealth
+      security: []
+      responses:
+        '200':
+          description: Dịch vụ và database đều hoạt động.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthEnvelope'
+
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+        '503':
+          description: Không kết nối được database.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                serviceUnavailable:
+                  summary: Database không khả dụng
+                  value:
+                    success: false
+                    statusCode: 503
+                    code: SERVICE_UNAVAILABLE
+                    message: Database is unreachable
+                    path: /api/v1/health
+                    timestamp: '2026-08-22T09:14:03.117Z'
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Đăng ký tài khoản mới
+      description: |
+        Tạo tài khoản với vai trò `MENTEE` (mặc định ở tầng database — endpoint
+        này không cho chọn vai trò). Đăng ký thành công sẽ đăng nhập luôn: server
+        trả access token và set cookie refresh token, client không cần gọi
+        `/auth/login` ngay sau đó.
+
+        Email được `trim()` + `toLowerCase()` trước khi lưu, nên `A@X.com` và
+        `a@x.com` là cùng một tài khoản.
+
+        IP và User-Agent của request được ghi vào bản ghi phiên để phục vụ quản lý
+        thiết bị sau này.
+      operationId: register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              hopLe:
+                summary: Payload hợp lệ
+                value:
+                  email: mentee@learnova.dev
+                  username: nguyen.van.a
+                  password: MatKhau123
+
+      responses:
+        '201':
+          description: Tạo tài khoản thành công. Refresh token nằm trong cookie.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetRefreshCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthEnvelope'
+
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+
+        '409':
+          description: Email hoặc username đã có người dùng.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                emailTaken:
+                  summary: Email đã đăng ký
+                  value:
+                    success: false
+                    statusCode: 409
+                    code: EMAIL_TAKEN
+                    message: This email is already registered
+                    path: /api/v1/auth/register
+                    timestamp: '2026-08-22T09:14:03.117Z'
+
+                usernameTaken:
+                  summary: Username đã có người lấy
+                  value:
+                    success: false
+                    statusCode: 409
+                    code: USERNAME_TAKEN
+                    message: This username is already taken
+                    path: /api/v1/auth/register
+                    timestamp: '2026-08-22T09:14:03.117Z'
+
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Đăng nhập bằng email và mật khẩu
+      description: |
+        Trả về access token trong body và set refresh token vào cookie `httpOnly`.
+
+        **Giới hạn riêng: 5 request / 60 giây cho mỗi IP.**
+
+        Sai email và sai mật khẩu trả về **cùng một** lỗi `INVALID_CREDENTIALS`,
+        và cả hai nhánh đều chạy qua một phép so bcrypt nên tốn thời gian như
+        nhau. Cả hai điều này là cố ý: endpoint không được trở thành công cụ dò
+        xem một email có tồn tại trong hệ thống hay không.
+
+        Tài khoản bị vô hiệu hoá (`isActive = false`) trả `403 ACCOUNT_DISABLED` —
+        khác với sai mật khẩu, vì ở đây thông tin đăng nhập là đúng.
+
+      operationId: login
+      security: []
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              hopLe:
+                summary: Payload hợp lệ
+                value:
+                  email: mentee@learnova.dev
+                  password: MatKhau123
+
+      responses:
+        '200':
+          description: Đăng nhập thành công. Refresh token nằm trong cookie.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetRefreshCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthEnvelope'
+
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+
+        '401':
+          description: Email không tồn tại hoặc mật khẩu sai.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidCredentials:
+                  summary: Sai email hoặc mật khẩu
+                  value:
+                    success: false
+                    statusCode: 401
+                    code: INVALID_CREDENTIALS
+                    message: Email or password is incorrect
+                    path: /api/v1/auth/login
+                    timestamp: '2026-08-22T09:14:03.117Z'
+
+        '403':
+          $ref: '#/components/responses/AccountDisabled'
+
+        '429':
+          description: Quá 5 lần đăng nhập trong 60 giây từ cùng một IP.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                rateLimited:
+                  summary: Quá giới hạn đăng nhập
+                  value:
+                    success: false
+                    statusCode: 429
+                    code: RATE_LIMITED
+                    message: 'ThrottlerException: Too Many Requests'
+                    path: /api/v1/auth/login
+                    timestamp: '2026-08-22T09:14:03.117Z'
+
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Cấp lại access token và xoay vòng refresh token
+      description: |
+        **Không nhận body.** Refresh token đọc từ cookie `httpOnly`, nên client
+        bắt buộc gọi kèm credentials.
+
+        Mỗi lần gọi thành công sẽ sinh refresh token mới và vô hiệu token cũ. Hạn
+        của phiên **không** được gia hạn: mốc hết hạn giữ nguyên tính từ lúc đăng
+        nhập, nếu không một phiên cứ refresh liên tục sẽ sống mãi mãi — và một
+        token bị đánh cắp cũng vậy.
+
+        Có khoảng ân hạn 10 giây cho token vừa bị xoay: hai request refresh bắn
+        song song (React StrictMode gọi effect hai lần, hoặc nhiều tab cùng mở)
+        thì request đến sau bị từ chối bằng `INVALID_REFRESH_TOKEN` nhưng phiên
+        vẫn sống. Ngoài khoảng đó, việc dùng lại token cũ bị coi là bị đánh cắp:
+        phiên bị thu hồi và trả `TOKEN_REUSE_DETECTED` — client phải bắt riêng mã
+        này và đẩy người dùng về màn hình đăng nhập.
+
+      operationId: refresh
+
+      security:
+        - refreshCookie: []
+
+      responses:
+        '200':
+          description: Cấp token mới thành công. Cookie được ghi đè bằng token đã xoay.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetRefreshCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthEnvelope'
+
+        '401':
+          description: Refresh token thiếu, hết hạn, đã bị thu hồi, hoặc bị phát hiện dùng lại.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidToken:
+                  summary: Thiếu / hết hạn / đã dùng
+                  value:
+                    success: false
+                    statusCode: 401
+                    code: INVALID_REFRESH_TOKEN
+                    message: Refresh token is missing, expired or already used
+                    path: /api/v1/auth/refresh
+                    timestamp: '2026-08-22T09:14:03.117Z'
+
+                reuseDetected:
+                  summary: Phát hiện dùng lại token đã xoay — phiên bị thu hồi
+                  value:
+                    success: false
+                    statusCode: 401
+                    code: TOKEN_REUSE_DETECTED
+                    message: Session revoked. Please sign in again.
+                    path: /api/v1/auth/refresh
+                    timestamp: '2026-08-22T09:14:03.117Z'
+
+        '403':
+          $ref: '#/components/responses/AccountDisabled'
+
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Đăng xuất phiên hiện tại
+      description: |
+        Thu hồi phiên tương ứng với refresh token trong cookie rồi xoá cookie đó.
+
+        **Idempotent:** gọi khi không có cookie, cookie sai, hoặc phiên đã bị thu
+        hồi đều trả `204`. Client không cần xử lý nhánh lỗi nào ở đây — cứ gọi rồi
+        điều hướng về trang đăng nhập.
+
+        Access token đã cấp **không** bị vô hiệu ngay: JWT là stateless, nó tự hết
+        hạn sau `JWT_ACCESS_TTL`. Client phải tự xoá token khỏi bộ nhớ.
+
+      operationId: logout
+
+      security:
+        - refreshCookie: []
+        - {}
+
+      responses:
+        '204':
+          description: |
+            Đã đăng xuất. Không có body — kể cả lớp bọc `{ "success": true }` cũng
+            không được gửi, vì như vậy sẽ mâu thuẫn với chính mã 204.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/ClearRefreshCookie'
+
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Lấy các claim của access token hiện tại
+      description: |
+        Trả về **đúng những gì access token mang theo**: `userId`, `email`,
+        `role`. Không có `username` hay `avatarUrl` — hồ sơ đầy đủ sẽ nằm ở
+        `/users/me` khi endpoint đó được xây.
+
+        Lưu ý payload ở đây **hẹp hơn** trường `user` mà `/auth/login` và
+        `/auth/register` trả về. Đừng viết code dùng chung một kiểu cho cả hai.
+
+        Mỗi request đi qua guard đều tốn một truy vấn kiểm tra `isActive`. Đó là
+        cái giá để một tài khoản bị khoá mất quyền ngay lập tức, thay vì phải đợi
+        access token hết hạn.
+
+      operationId: getCurrentSession
+
+      responses:
+        '200':
+          description: Token hợp lệ và tài khoản còn hoạt động.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionUserEnvelope'
+
+        '401':
+          description: |
+            Thiếu header `Authorization`, token sai chữ ký, token hết hạn, hoặc
+            tài khoản đã bị vô hiệu hoá trong lúc token còn sống.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missingToken:
+                  summary: Không có hoặc sai access token
+                  value:
+                    success: false
+                    statusCode: 401
+                    code: UNAUTHORIZED
+                    message: Missing or invalid access token
+                    path: /api/v1/auth/me
+                    timestamp: '2026-08-22T09:14:03.117Z'
+
+                inactiveAccount:
+                  summary: Token còn hạn nhưng tài khoản đã bị khoá
+                  value:
+                    success: false
+                    statusCode: 401
+                    code: UNAUTHORIZED
+                    message: Account is no longer active
+                    path: /api/v1/auth/me
+                    timestamp: '2026-08-22T09:14:03.117Z'
+
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access token lấy từ `/auth/login`, `/auth/register` hoặc `/auth/refresh`.
+        Gửi kèm dạng `Authorization: Bearer <accessToken>`.
+
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: learnova_rt
+      description: |
+        Refresh token dạng cookie `httpOnly`. Tên cookie lấy từ biến môi trường
+        `REFRESH_COOKIE_NAME`, mặc định `learnova_rt`.
+
+        Trình duyệt tự gửi cookie này; JavaScript **không** đọc được nó. Khai báo
+        ở đây chỉ để công cụ đọc tài liệu hiểu endpoint phụ thuộc vào cookie —
+        không phải để client tự set.
+
+  headers:
+
+    SetRefreshCookie:
+      description: |
+        Ghi refresh token vào cookie `httpOnly`.
+
+        Thuộc tính: `HttpOnly`, `Path=/api/v1/auth`, `Expires=<hạn của phiên>`, và
+        ở production thêm `Secure; SameSite=None` (dev dùng `SameSite=Lax` vì
+        frontend và API cùng nằm trên localhost).
+      schema:
+        type: string
+      examples:
+        refreshCookie:
+          summary: Refresh token cookie
+          value: 'learnova_rt=8Kk1x...redacted; Path=/api/v1/auth; Expires=Mon, 21 Sep 2026 09:14:03 GMT; HttpOnly; Secure; SameSite=None'
+
+    ClearRefreshCookie:
+      description: |
+        Xoá cookie refresh token. Các thuộc tính `path`, `sameSite`, `secure` phải
+        trùng khớp với lúc set, nếu không trình duyệt sẽ không xoá.
+      schema:
+        type: string
+      examples:
+        clearRefreshCookie:
+          summary: Xoá refresh token cookie
+          value: 'learnova_rt=; Path=/api/v1/auth; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=None'
+
+  responses:
+
+    ValidationFailed:
+      description: |
+        Payload không qua được `ValidationPipe`. Mỗi field sai chiếm một dòng
+        trong `details`. Gửi thừa field không khai báo trong DTO cũng rơi vào đây.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            validationFailed:
+              summary: Validation thất bại
+              value:
+                success: false
+                statusCode: 400
+                code: VALIDATION_FAILED
+                message: Request payload is invalid
+                details:
+                  - email must be a valid address
+                  - password must contain a lowercase letter, an uppercase letter and a digit
+                  - property fullName should not exist
+                path: /api/v1/auth/register
+                timestamp: '2026-08-22T09:14:03.117Z'
+
+    AccountDisabled:
+      description: Thông tin đăng nhập đúng nhưng tài khoản đã bị vô hiệu hoá.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            accountDisabled:
+              summary: Tài khoản bị vô hiệu hoá
+              value:
+                success: false
+                statusCode: 403
+                code: ACCOUNT_DISABLED
+                message: This account has been disabled
+                path: /api/v1/auth/login
+                timestamp: '2026-08-22T09:14:03.117Z'
+
+    RateLimited:
+      description: Vượt giới hạn tần suất toàn cục (120 request / 60 giây / IP).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            rateLimited:
+              summary: Quá giới hạn request
+              value:
+                success: false
+                statusCode: 429
+                code: RATE_LIMITED
+                message: 'ThrottlerException: Too Many Requests'
+                path: /api/v1/auth/me
+                timestamp: '2026-08-22T09:14:03.117Z'
+
+    InternalError:
+      description: |
+        Lỗi ngoài dự kiến ở phía server. Thông điệp gốc **không bao giờ** được trả
+        về — nó có thể chứa câu truy vấn, đường dẫn file hoặc chuỗi kết nối. Chi
+        tiết nằm trong log của server.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            internalError:
+              summary: Lỗi server
+              value:
+                success: false
+                statusCode: 500
+                code: INTERNAL_ERROR
+                message: Something went wrong on our side
+                path: /api/v1/auth/login
+                timestamp: '2026-08-22T09:14:03.117Z'
+
+  schemas:
+
+    Role:
+      type: string
+      description: Vai trò của người dùng trong hệ thống.
+      enum: [ADMIN, MENTOR, MENTEE]
+      examples:
+        - MENTEE
+
+    SuccessEnvelope:
+      type: object
+      description: Lớp bọc mà `TransformInterceptor` gắn vào mọi phản hồi có body.
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          const: true
+        data:
+          description: Nội dung thật của phản hồi.
+
+    ErrorResponse:
+      type: object
+      description: |
+        Hình dạng chung của **mọi** phản hồi lỗi, do `AllExceptionsFilter` và
+        `PrismaExceptionFilter` dựng nên.
+      required: [success, statusCode, code, message, path, timestamp]
+
+      properties:
+        success:
+          type: boolean
+          const: false
+
+        statusCode:
+          type: integer
+          description: Trùng với mã HTTP của phản hồi.
+          examples:
+            - 401
+
+        code:
+          type: string
+          description: |
+            Mã ổn định để client rẽ nhánh. **Không** so khớp theo `message`.
+
+            Mã dùng chung: `VALIDATION_FAILED`, `UNAUTHORIZED`, `FORBIDDEN`,
+            `NOT_FOUND`, `CONFLICT`, `RATE_LIMITED`, `PAYLOAD_TOO_LARGE`,
+            `INTERNAL_ERROR`, `SERVICE_UNAVAILABLE`.
+
+            Mã từ tầng database: `DB_UNIQUE_VIOLATION`, `DB_RECORD_NOT_FOUND`,
+            `DB_FOREIGN_KEY_VIOLATION`.
+
+            Mã riêng của auth: `INVALID_CREDENTIALS`, `ACCOUNT_DISABLED`,
+            `EMAIL_TAKEN`, `USERNAME_TAKEN`, `INVALID_REFRESH_TOKEN`,
+            `TOKEN_REUSE_DETECTED`, `INSUFFICIENT_ROLE`.
+          examples:
+            - INVALID_CREDENTIALS
+
+        message:
+          type: string
+          description: Chữ dành cho người đọc. Cách diễn đạt có thể đổi bất cứ lúc nào.
+          examples:
+            - Email or password is incorrect
+
+        details:
+          type: array
+          description: Chỉ xuất hiện với lỗi validation — mỗi field sai một dòng.
+          items:
+            type: string
+          examples:
+            - - email must be a valid address
+
+        path:
+          type: string
+          description: Đường dẫn đã gọi, kèm cả query string.
+          examples:
+            - /api/v1/auth/login
+
+        timestamp:
+          type: string
+          format: date-time
+          examples:
+            - '2026-08-22T09:14:03.117Z'
+
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [email, username, password]
+
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          description: Được `trim()` và chuyển về chữ thường trước khi lưu.
+          examples:
+            - mentee@learnova.dev
+
+        username:
+          type: string
+          minLength: 2
+          maxLength: 100
+          pattern: '^[a-zA-Z0-9._-]+$'
+          description: |
+            Chỉ cho phép chữ cái, chữ số, dấu chấm, gạch dưới và gạch nối. Được
+            `trim()` nhưng **giữ nguyên** chữ hoa/thường.
+          examples:
+            - nguyen.van.a
+
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          description: |
+            Phải có ít nhất một chữ thường, một chữ hoa và một chữ số.
+
+            Giới hạn 72 ký tự không phải tuỳ tiện: bcrypt cắt âm thầm mọi thứ vượt
+            quá 72 byte, nên DTO phải chặn từ đầu.
+          examples:
+            - MatKhau123
+
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          description: Được `trim()` và chuyển về chữ thường trước khi tra cứu.
+          examples:
+            - mentee@learnova.dev
+
+        password:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 72
+          examples:
+            - MatKhau123
+
+    AuthUser:
+      type: object
+      description: |
+        Hồ sơ rút gọn trả kèm khi cấp token (`/auth/register`, `/auth/login`,
+        `/auth/refresh`). Đủ để frontend dựng thanh điều hướng ngay sau khi đăng
+        nhập mà không cần gọi thêm request.
+
+        Rộng hơn `SessionUser` mà `/auth/me` trả về.
+      required: [userId, username, email, role, avatarUrl]
+
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: UUID v7 — sinh theo thời gian nên sắp xếp được.
+          examples:
+            - 0192f3c1-8a2b-7c4d-9e10-3f5a6b7c8d9e
+
+        username:
+          type: string
+          examples:
+            - nguyen.van.a
+
+        email:
+          type: string
+          format: email
+          examples:
+            - mentee@learnova.dev
+
+        role:
+          $ref: '#/components/schemas/Role'
+
+        avatarUrl:
+          type: [string, 'null']
+          description: URL đầy đủ do dịch vụ lưu trữ bên thứ ba trả về, hoặc `null`.
+          examples:
+            - null
+
+    SessionUser:
+      type: object
+      description: |
+        Các claim mang theo trong access token, đúng như `JwtStrategy.validate()`
+        gắn vào `req.user`. Cố tình tối giản — chỉ chứa thứ mà guard cần.
+      required: [userId, email, role]
+
+      properties:
+        userId:
+          type: string
+          format: uuid
+          examples:
+            - 0192f3c1-8a2b-7c4d-9e10-3f5a6b7c8d9e
+
+        email:
+          type: string
+          format: email
+          examples:
+            - mentee@learnova.dev
+
+        role:
+          $ref: '#/components/schemas/Role'
+
+    AuthResponse:
+      type: object
+      required: [accessToken, expiresIn, user]
+
+      properties:
+        accessToken:
+          type: string
+          description: 'JWT. Gửi lại dưới dạng `Authorization: Bearer <token>`.'
+          examples:
+            - eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMTkyZjNjMS04YTJiLTdjNGQiLCJlbWFpbCI6Im1lbnRlZUBsZWFybm92YS5kZXYiLCJyb2xlIjoiTUVOVEVFIn0.qZ9Vv1nQ2mB3xKcR8sT7uY6wA5dE4fG3hI2jK1lM0nO
+
+        expiresIn:
+          type: integer
+          description: |
+            Số **giây** access token còn sống, không phải mốc thời gian tuyệt đối.
+            Lấy từ `JWT_ACCESS_TTL`.
+          examples:
+            - 900
+
+        user:
+          $ref: '#/components/schemas/AuthUser'
+
+    HealthStatus:
+      type: object
+      required: [status, database, latencyMs, uptimeSeconds, timestamp]
+
+      properties:
+        status:
+          type: string
+          const: ok
+          description: |
+            Chỉ có giá trị `ok`. Database chết thì endpoint trả 503, không trả
+            trạng thái khác.
+
+        database:
+          type: string
+          const: up
+
+        latencyMs:
+          type: integer
+          description: Thời gian truy vấn `SELECT 1` đi và về, tính bằng mili giây.
+          examples:
+            - 3
+
+        uptimeSeconds:
+          type: integer
+          description: Tiến trình Node đã chạy được bao lâu.
+          examples:
+            - 86412
+
+        timestamp:
+          type: string
+          format: date-time
+          examples:
+            - '2026-08-22T09:14:03.117Z'
+
+    AuthEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AuthResponse'
+
+    SessionUserEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/SessionUser'
+
+    HealthEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/HealthStatus'

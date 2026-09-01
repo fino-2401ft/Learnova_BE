@@ -1,0 +1,29 @@
+# Phụ thuộc
+/node_modules
+
+# Kết quả build
+/dist
+*.tsbuildinfo
+
+# Biến môi trường — KHÔNG BAO GIỜ commit
+.env
+.env.*.local
+
+# Log
+*.log
+npm-debug.log*
+
+# Kiểm thử
+/coverage
+
+# IDE
+.idea
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+
+# Prisma
+prisma/*.db
+
+# File nháp khi soạn nội dung, cắt bằng "npm run course:split"
+drafts/
