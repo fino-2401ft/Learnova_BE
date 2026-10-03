@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { readCourse, type ParseWarning, type ParsedCourse } from './markdown';
+import { legacyPathOrder } from './paths';
 
 /**
  * Nạp các khoá học demo từ kho tài liệu Markdown vào database.
@@ -46,14 +47,13 @@ interface CatalogEntry {
   key: string;
   /** Tên thư mục con trong kho tài liệu tương ứng. */
   dir: string;
-  /**
-   * Vị trí trong lộ trình "NodeJS Backend Developer", đếm từ 1.
-   *
-   * Lộ trình là một dãy cố định giống nhau với mọi người; cá nhân hoá chỉ là bỏ bớt
-   * chương, không đảo thứ tự. Trùng tuỳ tên thư mục cho dễ đọc, nhưng tên thư mục
-   * không phải nguồn sự thật — cột này mới là.
-   */
-  pathOrder: number;
+  // KHÔNG có `pathOrder` ở đây, có chủ ý.
+  //
+  // Lộ trình được khai ở prisma/import/paths.ts, và cột `courses.path_order` cũ được
+  // SUY RA từ đó qua `legacyPathOrder()`. Khai ở cả hai nơi là mở đường cho hai nơi
+  // lệch nhau, rồi bảng điều khiển và trang lộ trình nói hai câu chuyện khác nhau về
+  // cùng một khoá học.
+
   /** Email của mentor đứng tên khoá. Phải khớp một tài khoản do seed tạo. */
   mentorEmail: string;
   /** Tên file trong public/covers, không kèm đuôi. */
@@ -76,7 +76,6 @@ const CATALOG: CatalogEntry[] = [
     root: 'authored',
     key: 'course-02-javascript',
     dir: 'course-01-javascript',
-    pathOrder: 1,
     mentorEmail: 'hoang.nguyen@learnova.dev',
     coverSlug: 'javascript',
     description:
@@ -86,7 +85,6 @@ const CATALOG: CatalogEntry[] = [
     root: 'authored',
     key: 'course-03-typescript',
     dir: 'course-02-typescript',
-    pathOrder: 2,
     mentorEmail: 'hoang.nguyen@learnova.dev',
     coverSlug: 'typescript',
     description:
@@ -96,7 +94,6 @@ const CATALOG: CatalogEntry[] = [
     root: 'authored',
     key: 'course-04-nodejs',
     dir: 'course-03-nodejs',
-    pathOrder: 3,
     mentorEmail: 'yen.cao@learnova.dev',
     coverSlug: 'nodejs',
     description:
@@ -106,7 +103,6 @@ const CATALOG: CatalogEntry[] = [
     root: 'authored',
     key: 'course-01-expressjs',
     dir: 'course-04-expressjs',
-    pathOrder: 4,
     mentorEmail: 'mai.vu@learnova.dev',
     coverSlug: 'expressjs',
     description:
@@ -116,7 +112,6 @@ const CATALOG: CatalogEntry[] = [
     root: 'authored',
     key: 'course-05-database',
     dir: 'course-05-database',
-    pathOrder: 5,
     mentorEmail: 'hue.dang@learnova.dev',
     coverSlug: 'database',
     description:
@@ -126,7 +121,6 @@ const CATALOG: CatalogEntry[] = [
     root: 'authored',
     key: 'course-06-nestjs',
     dir: 'course-06-nestjs',
-    pathOrder: 6,
     mentorEmail: 'mentor@learnova.local',
     coverSlug: 'nestjs',
     description:
@@ -136,11 +130,112 @@ const CATALOG: CatalogEntry[] = [
     root: 'authored',
     key: 'course-07-auth-security',
     dir: 'course-07-auth-security',
-    pathOrder: 7,
     mentorEmail: 'nghia.vo@learnova.dev',
     coverSlug: 'auth-security',
     description:
       'Băm mật khẩu, JWT, xoay vòng refresh token, phân quyền theo vai trò, cùng danh sách kiểm tra bảo mật cho ứng dụng thật.',
+  },
+
+  // -------------------------------------------------------------------------
+  // Lộ trình Frontend React — 10 khoá, nguồn: FinalProjectDocs/FE REACTJS
+  // -------------------------------------------------------------------------
+  //
+  // Thứ tự khai báo dưới đây theo đúng mạch học, nhưng thứ tự THẬT của lộ trình nằm
+  // ở prisma/import/paths.ts — đó mới là nơi quyết định. Danh sách này chỉ là danh
+  // mục khoá học, không phải lộ trình.
+  //
+  // Mentor gán theo chuyên môn khai trong seed, không gán bừa: phần lớn về
+  // mentor.hoang (React, TypeScript, Next.js), riêng khoá giao diện về mentor.trang
+  // (UI/UX, Design System) và khoá kiểm thử về mentor.ha (Testing, Playwright).
+  {
+    root: 'authored',
+    key: 'course-08-javascript-es6',
+    dir: 'course-08-javascript-es6',
+    mentorEmail: 'hoang.nguyen@learnova.dev',
+    coverSlug: 'javascript-es6',
+    description:
+      'JavaScript hiện đại cho lập trình web: biến, hàm mũi tên, mảng và object, thao tác DOM, class và module, khép lại bằng scope, hoisting và quản lý bộ nhớ.',
+  },
+  {
+    root: 'authored',
+    key: 'course-09-javascript-async',
+    dir: 'course-09-javascript-async',
+    mentorEmail: 'hoang.nguyen@learnova.dev',
+    coverSlug: 'javascript-async',
+    description:
+      'Closure, Promise, async/await và Event Loop — những cơ chế quyết định vì sao code bất đồng bộ chạy đúng hay sai. Kết thúc bằng prototype, Web API và mẫu thiết kế.',
+  },
+  {
+    root: 'authored',
+    key: 'course-10-react-fundamentals',
+    dir: 'course-10-react-fundamentals',
+    mentorEmail: 'hoang.nguyen@learnova.dev',
+    coverSlug: 'react-fundamentals',
+    description:
+      'Dựng ứng dụng React từ đầu với Vite: component, props, state, xử lý sự kiện và form. Có cả phần Virtual DOM và React Fiber để hiểu React render thế nào.',
+  },
+  {
+    root: 'authored',
+    key: 'course-11-react-hooks-patterns',
+    dir: 'course-11-react-hooks-patterns',
+    mentorEmail: 'hoang.nguyen@learnova.dev',
+    coverSlug: 'react-hooks-patterns',
+    description:
+      'useContext, useReducer, custom hook và các kỹ thuật tối ưu render. Phần cuối đi vào hook đồng thời và những mẫu component nâng cao như Compound Component.',
+  },
+  {
+    root: 'authored',
+    key: 'course-12-redux-toolkit',
+    dir: 'course-12-redux-toolkit',
+    mentorEmail: 'hoang.nguyen@learnova.dev',
+    coverSlug: 'redux-toolkit',
+    description:
+      'Redux Toolkit và RTK Query cho ứng dụng lớn, kèm cập nhật lạc quan. So sánh thẳng thắn với Zustand và TanStack Query để biết khi nào không cần Redux.',
+  },
+  {
+    root: 'authored',
+    key: 'course-13-react-router-api',
+    dir: 'course-13-react-router-api',
+    mentorEmail: 'hoang.nguyen@learnova.dev',
+    coverSlug: 'react-router-api',
+    description:
+      'React Router v6, route được bảo vệ, tầng gọi API bằng Axios và form với React Hook Form + Zod. Khép lại bằng xoay vòng JWT và triển khai CI/CD.',
+  },
+  {
+    root: 'authored',
+    key: 'course-14-typescript-react',
+    dir: 'course-14-typescript-react',
+    mentorEmail: 'mentor@learnova.local',
+    coverSlug: 'typescript-react',
+    description:
+      'Định kiểu cho component, hook, Redux và React Router. Có cả type guard, discriminated union và lộ trình chuyển một dự án JavaScript sẵn có sang TypeScript.',
+  },
+  {
+    root: 'authored',
+    key: 'course-15-styling-ui',
+    dir: 'course-15-styling-ui',
+    mentorEmail: 'trang.le@learnova.dev',
+    coverSlug: 'styling-ui',
+    description:
+      'CSS Modules, Tailwind v4, thư viện headless và Framer Motion. Phần cuối bàn về design token, hệ chủ đề và khả năng tiếp cận cho người khuyết tật.',
+  },
+  {
+    root: 'authored',
+    key: 'course-16-testing-performance',
+    dir: 'course-16-testing-performance',
+    mentorEmail: 'ha.phan@learnova.dev',
+    coverSlug: 'testing-performance',
+    description:
+      'Vitest, React Testing Library, giả lập API bằng MSW và kiểm thử đầu-cuối với Playwright. Nửa sau là hồ sơ hiệu năng, chia nhỏ gói và theo dõi Core Web Vitals.',
+  },
+  {
+    root: 'authored',
+    key: 'course-17-nextjs-fullstack',
+    dir: 'course-17-nextjs-fullstack',
+    mentorEmail: 'hoang.nguyen@learnova.dev',
+    coverSlug: 'nextjs-fullstack',
+    description:
+      'Next.js App Router, Server Component, các chiến lược SSR/SSG/ISR và Server Action. Kết thúc bằng kiến trúc dự án thật, Docker và danh sách kiểm tra OWASP.',
   },
 ];
 
@@ -314,7 +409,7 @@ export async function importCourses(
       update: {
         title: parsed.title,
         description: entry.description,
-        pathOrder: entry.pathOrder,
+        pathOrder: legacyPathOrder(entry.key),
         coverImageUrl: `${options.publicBaseUrl}/static/covers/${entry.coverSlug}.svg`,
         level,
         mentorId: mentorUserId,
@@ -324,7 +419,7 @@ export async function importCourses(
         mentorId: mentorUserId,
         title: parsed.title,
         description: entry.description,
-        pathOrder: entry.pathOrder,
+        pathOrder: legacyPathOrder(entry.key),
         // Chỉ lưu URL, không lưu chính tấm ảnh. File nằm ở public/covers và được
         // phục vụ ở /static. Chuyển sang S3 sau này chỉ là đổi PUBLIC_BASE_URL.
         coverImageUrl: `${options.publicBaseUrl}/static/covers/${entry.coverSlug}.svg`,

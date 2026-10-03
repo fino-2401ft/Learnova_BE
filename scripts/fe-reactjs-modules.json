@@ -1,0 +1,92 @@
+{
+  "_ghi_chu": [
+    "Cách gộp 8 bài của mỗi khoá thành chương, dùng cho scripts/group-flat-course.mjs.",
+    "Kho nguồn để mỗi bài là một chương riêng, nên nếu bê nguyên thì đề cương hiện 8",
+    "chương mà chương nào cũng chỉ có một bài. File này là phần diễn giải của con người.",
+    "Thứ tự bài GIỮ NGUYÊN theo nguồn, TRỪ khoá 6: tác giả xếp 'deployment-cicd' vào",
+    "giữa khoá, giữa các bài về routing và API. Đã chuyển nó xuống chương cuối cùng",
+    "cùng với bảo mật JWT, vì đó mới là chỗ nó thuộc về."
+  ],
+
+  "course-1-javascript-es6-co-ban": {
+    "modules": [
+      { "title": "Nền tảng cú pháp", "lessons": ["variables-data-types-operators", "functions-arrow-functions"] },
+      { "title": "Dữ liệu và DOM", "lessons": ["arrays-array-methods", "objects-destructuring", "dom-manipulation"] },
+      { "title": "Cú pháp hiện đại và cơ chế bên dưới", "lessons": ["es6-classes-modules", "scope-hoisting-tdz", "memory-management-immutability"] }
+    ]
+  },
+
+  "course-2-javascript-nang-cao-async": {
+    "modules": [
+      { "title": "Closure và bất đồng bộ", "lessons": ["closures-hof", "promises", "async-await-fetch-api"] },
+      { "title": "Xử lý lỗi và Event Loop", "lessons": ["error-handling-async-patterns", "event-loop-advanced-async"] },
+      { "title": "Prototype, Web API và mẫu thiết kế", "lessons": ["prototypes-functional-js", "web-storage-web-workers", "js-design-patterns"] }
+    ]
+  },
+
+  "course-3-react-fundamentals": {
+    "modules": [
+      { "title": "Khởi động và Component", "lessons": ["vite-react-jsx", "components-props"] },
+      { "title": "State và tương tác người dùng", "lessons": ["usestate-state-management", "events-controlled-inputs", "lists-conditional-rendering"] },
+      { "title": "Side effect, cơ chế render và form", "lessons": ["useeffect-side-effects", "virtual-dom-react-fiber", "forms-file-uploads"] }
+    ]
+  },
+
+  "course-4-react-hooks-patterns-nang-cao": {
+    "modules": [
+      { "title": "Chia sẻ và quản lý state", "lessons": ["usecontext-prop-drilling", "usereducer-complex-state"] },
+      { "title": "Tối ưu và tái sử dụng logic", "lessons": ["useref-usememo-usecallback", "custom-hooks", "performance-patterns-react-memo"] },
+      { "title": "Hook nâng cao và mẫu component", "lessons": ["useimperativehandle-uselayouteffect-useid", "usetransition-usedeferredvalue", "compound-components-render-props"] }
+    ]
+  },
+
+  "course-5-state-management-redux-toolkit": {
+    "modules": [
+      { "title": "Redux Toolkit nền tảng", "lessons": ["redux-core-createslice", "createasyncthunk-async-operations"] },
+      { "title": "RTK Query và thực hành tốt", "lessons": ["rtk-query-api-layer", "redux-patterns-best-practices", "rtk-query-optimistic-updates"] },
+      { "title": "Giải pháp thay thế Redux", "lessons": ["zustand-state-management", "tanstack-query", "comparing-state-solutions"] }
+    ]
+  },
+
+  "course-6-react-router-api-integration": {
+    "modules": [
+      { "title": "Định tuyến với React Router", "lessons": ["react-router-v6-setup", "protected-routes-auth-flow", "loaders-actions-error-boundaries"] },
+      { "title": "Tích hợp API và form", "lessons": ["axios-api-service-layer", "react-hook-form-zod", "file-uploads-s3-cloudinary"] },
+      { "title": "Bảo mật và triển khai", "lessons": ["jwt-token-rotation-security", "deployment-cicd"] }
+    ]
+  },
+
+  "course-7-typescript-for-react-developers": {
+    "modules": [
+      { "title": "Nền tảng TypeScript", "lessons": ["typescript-fundamentals", "generics-utility-types"] },
+      { "title": "Định kiểu cho React", "lessons": ["typing-components-props-events", "typing-react-hooks"] },
+      { "title": "Định kiểu cho hệ sinh thái", "lessons": ["typing-redux-toolkit-rtk-query", "typing-react-router-axios"] },
+      { "title": "Kỹ thuật nâng cao và chuyển đổi", "lessons": ["type-guards-discriminated-unions", "migrating-js-to-typescript"] }
+    ]
+  },
+
+  "course-8-styling-css-systems-ui-libraries": {
+    "modules": [
+      { "title": "CSS Modules và Tailwind", "lessons": ["css-modules-variables", "tailwind-css-v4", "tailwind-responsive-darkmode"] },
+      { "title": "Thư viện UI và hiệu ứng", "lessons": ["headless-ui-shadcn", "ui-animation-framer-motion"] },
+      { "title": "Design system và khả năng tiếp cận", "lessons": ["accessible-a11y-design-system", "theme-system-design-tokens", "styled-components-emotion"] }
+    ]
+  },
+
+  "course-9-testing-qa-performance-optimization": {
+    "modules": [
+      { "title": "Nền tảng kiểm thử", "lessons": ["testing-fundamentals-vitest", "react-testing-library-rtl"] },
+      { "title": "Kiểm thử nâng cao", "lessons": ["mocking-api-msw", "testing-hooks-redux-context", "e2e-testing-playwright"] },
+      { "title": "Tối ưu hiệu năng", "lessons": ["profiling-debugging-performance", "code-splitting-tree-shaking", "error-monitoring-sentry-web-vitals"] }
+    ]
+  },
+
+  "course-10-nextjs-fullstack-react-architecture": {
+    "modules": [
+      { "title": "App Router nền tảng", "lessons": ["nextjs-app-router-fundamentals", "server-vs-client-components"] },
+      { "title": "Lấy dữ liệu và mutation", "lessons": ["data-fetching-ssr-ssg-isr", "server-actions-mutations"] },
+      { "title": "Xác thực và SEO", "lessons": ["auth-nextauth-middleware", "seo-opengraph-dynamic-metadata"] },
+      { "title": "Kiến trúc và triển khai", "lessons": ["enterprise-project-architecture", "production-deployment-docker-security"] }
+    ]
+  }
+}

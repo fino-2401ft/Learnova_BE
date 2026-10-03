@@ -14,6 +14,7 @@ import { createHash } from 'node:crypto';
 
 import { hashPassword } from '../src/common/utils/password.util';
 import { AUTHORED_DOCS_DIR, DEFAULT_DOCS_DIR, importCourses } from './import/courses';
+import { importPaths } from './import/paths';
 import { importSkills } from './import/skills';
 
 /**
@@ -398,6 +399,19 @@ async function main(): Promise<void> {
   // đều phải rỗng: có chương không kỹ năng nào nhận nghĩa là bài kiểm tra đầu vào
   // sẽ không bao giờ hỏi tới chương đó, còn dòng khai báo trỏ sai nghĩa là gõ nhầm
   // tên thư mục. Cả hai đều phải nổ ngay chứ không được âm thầm trôi qua.
+  // --- lộ trình nghề --------------------------------------------------------
+  //
+  // Sau importCourses vì nó trỏ tới khoá có thật. `unknownCourses` phải rỗng: một
+  // dòng trỏ sai nghĩa là gõ nhầm `key`, và hậu quả là lộ trình thiếu mất một khoá mà
+  // không ai nhận ra — lộ trình vẫn hiện ra, chỉ ngắn hơn đúng một bước.
+  const pathResult = await importPaths(prisma, realCourses);
+
+  if (pathResult.unknownCourses.length > 0) {
+    throw new Error(
+      `Lộ trình trỏ tới khoá học không tồn tại:\n  ${pathResult.unknownCourses.join('\n  ')}`,
+    );
+  }
+
   const skillResult = await importSkills(prisma, realCourses);
 
   if (skillResult.unknownChapters.length > 0) {

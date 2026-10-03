@@ -42,6 +42,29 @@ export const ErrorCode = {
   UPLOAD_TICKET_INVALID: 'UPLOAD_TICKET_INVALID',
   UPLOAD_INCOMPLETE: 'UPLOAD_INCOMPLETE',
 
+  // Meetings. Bốn lý do khác nhau khiến một người không vào được phòng, và giao diện
+  // phải phản ứng khác nhau với từng lý do: đếm ngược, hiện màn hình chờ duyệt, báo
+  // buổi họp đã kết thúc, hay đưa về trang khoá học.
+  MEETING_NOT_STARTED: 'MEETING_NOT_STARTED',
+  MEETING_ENDED: 'MEETING_ENDED',
+  MEETING_APPROVAL_PENDING: 'MEETING_APPROVAL_PENDING',
+  MEETING_ACCESS_DENIED: 'MEETING_ACCESS_DENIED',
+  /// Chỉ chủ phòng mới gia hạn, duyệt người vào, hay đóng phòng được.
+  MEETING_NOT_HOST: 'MEETING_NOT_HOST',
+  MEETING_TIME_INVALID: 'MEETING_TIME_INVALID',
+  /// Bấm ghi hình lần thứ hai trong khi lần đầu còn đang chạy. Giao diện chỉ cần
+  /// đồng bộ lại nút bấm, không phải báo lỗi cho người dùng.
+  RECORDING_ALREADY_ACTIVE: 'RECORDING_ALREADY_ACTIVE',
+  /// Bấm ghi hình khi chưa ai thực sự kết nối vào phòng trên SFU. Không phải sự cố:
+  /// phòng chuyển LIVE trong database ngay lúc chủ phòng xin token, còn phòng bên
+  /// LiveKit chỉ ra đời khi trình duyệt nối vào thật.
+  RECORDING_ROOM_NOT_READY: 'RECORDING_ROOM_NOT_READY',
+
+  // Bài kiểm tra đầu vào của lộ trình.
+  ASSESSMENT_NO_QUESTIONS: 'ASSESSMENT_NO_QUESTIONS',
+  ASSESSMENT_ALREADY_SUBMITTED: 'ASSESSMENT_ALREADY_SUBMITTED',
+  ASSESSMENT_NOT_SUBMITTED: 'ASSESSMENT_NOT_SUBMITTED',
+
   // Raised by the database layer, see prisma-exception.filter.ts
   DB_UNIQUE_VIOLATION: 'DB_UNIQUE_VIOLATION',
   DB_RECORD_NOT_FOUND: 'DB_RECORD_NOT_FOUND',

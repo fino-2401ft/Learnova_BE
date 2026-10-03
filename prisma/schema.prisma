@@ -89,6 +89,41 @@ enum MeetingParticipantRole {
   PARTICIPANT
 }
 
+/// Vòng đời một bản ghi hình.
+///
+/// Ghi hình KHÔNG kết thúc ngay khi bấm dừng: LiveKit còn phải ghép file rồi tải lên
+/// kho lưu trữ, mất từ vài giây tới vài phút tuỳ độ dài. PROCESSING là quãng đó — nếu
+/// gộp nó vào READY thì giao diện sẽ hiện một đường link chết cho tới khi file lên xong.
+enum RecordingStatus {
+  RECORDING
+  /// Đã dừng, LiveKit đang ghép và tải file lên.
+  PROCESSING
+  /// File đã nằm trên kho lưu trữ, `url` dùng được.
+  READY
+  FAILED
+}
+
+/// Quyền vào phòng của một người.
+///
+/// Người thuộc khoá học (mentor dạy khoá, hoặc mentee đã ghi danh) được ADMITTED ngay
+/// lúc bấm vào — không ai phải chờ duyệt trong lớp của chính mình. Người NGOÀI khoá gõ
+/// cửa thì tạo ra một dòng PENDING và chờ chủ phòng bấm duyệt.
+///
+/// Vì sao là cột trạng thái chứ không phải bảng "yêu cầu tham gia" riêng: dù được duyệt
+/// hay không, cuối cùng vẫn cần đúng một dòng cho mỗi (phòng, người) để ghi joinedAt và
+/// leftAt. Tách bảng nghĩa là dữ liệu của cùng một người nằm hai nơi, và lúc duyệt phải
+/// chuyển dòng từ bảng này sang bảng kia.
+enum MeetingParticipantStatus {
+  /// Người ngoài khoá đã gõ cửa, chủ phòng chưa trả lời.
+  PENDING
+  /// Được vào phòng.
+  ADMITTED
+  /// Chủ phòng từ chối. Giữ lại dòng thay vì xoá để người bị từ chối không thể gõ cửa
+  /// lại liên tục — một người bị từ chối mà cứ hiện lên trong danh sách chờ mỗi mười
+  /// giây là một cách quấy rối.
+  REJECTED
+}
+
 /// Các phần cấu thành một bài học, theo đúng khung mà tài liệu giảng dạy đang dùng.
 ///
 /// Sắp xếp thật sự nằm ở LessonSection.orderIndex, không ở thứ tự khai báo enum:
@@ -140,6 +175,7 @@ model User {
   messages                Message[]
   hostedMeetings          MeetingRoom[]
   meetingParticipations   MeetingParticipant[]
+  pathAssessments         PathAssessment[]
 
   @@map("users")
 }
@@ -234,17 +270,15 @@ model Course {
   level         CourseLevel  @default(BEGINNER)
   status        CourseStatus @default(DRAFT)
 
-  /// Vị trí trong lộ trình "NodeJS Backend Developer", đếm từ 1.
+  /// CŨ — vị trí trong lộ trình "NodeJS Backend Developer", đếm từ 1.
   ///
-  /// null = khoá không thuộc lộ trình (mentor tự soạn, khoá nháp). Lộ trình là một dãy
-  /// cố định giống nhau với mọi người học — cá nhân hoá chỉ là bỏ bớt chương dựa trên
-  /// hồ sơ năng lực, không đảo thứ tự và không thêm bớt khoá.
+  /// KHÔNG còn là nguồn sự thật. Từ khi có `LearningPath`, lộ trình được mô tả bằng
+  /// bảng `LearningPathCourse`, và một khoá nằm được trong nhiều lộ trình — điều mà
+  /// một cột `@unique` toàn cục không diễn đạt nổi.
   ///
-  /// `@unique` chặn hai khoá cùng giữ một vị trí; Postgres cho phép nhiều NULL nên
-  /// khoá ngoài lộ trình không bị ảnh hưởng.
-  ///
-  /// Tên thư mục trong content/courses đánh số trùng với cột này cho dễ đọc, nhưng
-  /// tên thư mục không phải nguồn sự thật — cột này mới là.
+  /// Giữ lại vì bảng điều khiển phía frontend còn đọc nó. Importer SUY RA cột này từ
+  /// lộ trình backend chứ không nhận khai báo riêng, nên hai nơi không thể lệch nhau.
+  /// Chuyển xong bảng điều khiển sang API lộ trình thì xoá cột này.
   pathOrder Int? @unique @map("path_order")
 
   /// Who reviewed it, when, and why it was rejected. Without these a rejected
@@ -261,6 +295,7 @@ model Course {
   reviewedBy   User?          @relation("CourseReviewer", fields: [reviewedById], references: [userId], onDelete: SetNull)
   chapters     Chapter[]
   enrollments  Enrollment[]
+  learningPaths LearningPathCourse[]
   conversation Conversation[]
   meetingRooms MeetingRoom[]
 
@@ -307,7 +342,9 @@ model Skill {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  chapters SkillChapter[]
+  chapters           SkillChapter[]
+  assessmentQuestions AssessmentQuestion[]
+  assessmentScores    AssessmentSkillScore[]
 
   @@map("skills")
 }
@@ -322,6 +359,142 @@ model Skill {
 ///
 /// Vẫn để nhiều-nhiều dù hiện tại mỗi chương chỉ mang đúng một kỹ năng: nới ràng buộc
 /// về sau tốn một migration, còn siết lại thì không mất gì.
+enum AssessmentStatus {
+  IN_PROGRESS
+  SUBMITTED
+}
+
+/// Một lần làm bài kiểm tra đầu vào của một lộ trình.
+///
+/// Mục đích DUY NHẤT là cá nhân hoá: điểm từng kỹ năng quyết định chương nào được bỏ
+/// qua. Đây không phải bài thi lấy điểm, không có đỗ trượt, và làm lại được bao nhiêu
+/// lần tuỳ ý — lần nộp gần nhất là lần có hiệu lực.
+model PathAssessment {
+  assessmentId   String @id @default(uuid(7)) @map("assessment_id") @db.Uuid
+  userId         String @map("user_id") @db.Uuid
+  learningPathId String @map("learning_path_id") @db.Uuid
+
+  status      AssessmentStatus @default(IN_PROGRESS)
+  startedAt   DateTime         @default(now()) @map("started_at") @db.Timestamptz(6)
+  submittedAt DateTime?        @map("submitted_at") @db.Timestamptz(6)
+
+  user         User               @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  learningPath LearningPath       @relation(fields: [learningPathId], references: [learningPathId], onDelete: Cascade)
+  questions    AssessmentQuestion[]
+  skillScores  AssessmentSkillScore[]
+
+  /// Tra "lần làm gần nhất của người này trong lộ trình này" — chạy mỗi lần mở lộ trình.
+  @@index([userId, learningPathId, submittedAt])
+  @@map("path_assessments")
+}
+
+/// Một câu trong đề đã phát, kèm câu trả lời.
+///
+/// VÌ SAO PHẢI LƯU ĐỀ: câu hỏi được BỐC NGẪU NHIÊN từ ngân hàng quiz của các bài học.
+/// Nếu bốc lại mỗi lần client hỏi, người làm bài sẽ thấy một bộ đề khác sau mỗi lần
+/// tải lại trang, và những câu đã trả lời biến mất. Đóng băng ngay lúc bắt đầu là thứ
+/// duy nhất làm cho bài kiểm tra có thật.
+model AssessmentQuestion {
+  assessmentId String @map("assessment_id") @db.Uuid
+  questionId   String @map("question_id") @db.Uuid
+
+  /// Kỹ năng mà câu này chấm điểm cho.
+  ///
+  /// Lưu lại chứ không suy ra qua chuỗi Question → Lesson → Chapter → Skill lúc chấm:
+  /// một chương được gán lại kỹ năng khác giữa lúc người ta đang làm bài sẽ làm điểm
+  /// nhảy sang kỹ năng khác. Bài đã phát phải chấm theo đúng luật lúc phát.
+  skillId    String @map("skill_id") @db.Uuid
+  orderIndex Int    @map("order_index")
+
+  /// `null` = chưa trả lời. Người dùng bỏ trống câu nào thì câu đó tính là sai.
+  selectedOptionId String?  @map("selected_option_id") @db.Uuid
+  isCorrect        Boolean? @map("is_correct")
+
+  assessment PathAssessment @relation(fields: [assessmentId], references: [assessmentId], onDelete: Cascade)
+  question   QuizQuestion   @relation(fields: [questionId], references: [questionId], onDelete: Cascade)
+  skill      Skill          @relation(fields: [skillId], references: [skillId], onDelete: Cascade)
+
+  @@id([assessmentId, questionId])
+  @@unique([assessmentId, orderIndex])
+  @@index([questionId])
+  @@index([skillId])
+  @@map("assessment_questions")
+}
+
+/// Điểm một kỹ năng trong một lần làm bài. Ghi lúc nộp.
+///
+/// Lưu kết quả đã chốt thay vì đếm lại từ `AssessmentQuestion` mỗi lần đọc: bảng này
+/// được đọc ở mọi lần mở lộ trình, và nó phải giữ nguyên ngay cả khi câu hỏi gốc bị
+/// sửa hay bài học bị xoá sau đó.
+model AssessmentSkillScore {
+  assessmentId String @map("assessment_id") @db.Uuid
+  skillId      String @map("skill_id") @db.Uuid
+
+  correct Int
+  total   Int
+
+  assessment PathAssessment @relation(fields: [assessmentId], references: [assessmentId], onDelete: Cascade)
+  skill      Skill          @relation(fields: [skillId], references: [skillId], onDelete: Cascade)
+
+  @@id([assessmentId, skillId])
+  @@index([skillId])
+  @@map("assessment_skill_scores")
+}
+
+/// Một lộ trình nghề: "NodeJS Backend Developer", "React Frontend Developer".
+///
+/// Trước đây lộ trình là ngầm định — chỉ có cột `Course.pathOrder` và đúng MỘT dãy
+/// khoá học. Bảng này làm nó thành thứ đếm được: người học chọn lộ trình theo vai trò
+/// muốn hướng tới, và một khoá có thể nằm trong nhiều lộ trình.
+model LearningPath {
+  learningPathId String @id @default(uuid(7)) @map("learning_path_id") @db.Uuid
+
+  /// Khoá tự nhiên, đi vào URL. Mọi UUID băm từ chuỗi này nên **không đổi**.
+  slug        String @unique @db.VarChar(60)
+  title       String @db.VarChar(120)
+  description String @db.Text
+
+  /// TÊN icon để frontend tra sang component, không phải URL. Bộ icon nằm trong mã
+  /// nguồn frontend nên lưu URL ở đây sẽ trỏ ra ngoài một thứ không tồn tại.
+  icon String @db.VarChar(40)
+
+  /// Thứ tự hiển thị trên trang chọn lộ trình.
+  orderIndex Int @unique @map("order_index")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  courses     LearningPathCourse[]
+  assessments PathAssessment[]
+
+  @@map("learning_paths")
+}
+
+/// Một khoá học tại một vị trí trong một lộ trình.
+///
+/// Bảng nối chứ không phải cột trên `Course`: cùng một khoá TypeScript hoàn toàn có
+/// thể là bước 2 của lộ trình backend và bước 7 của lộ trình frontend. Cột
+/// `Course.pathOrder` cũ không diễn đạt được điều đó.
+model LearningPathCourse {
+  learningPathId String @map("learning_path_id") @db.Uuid
+  courseId       String @map("course_id") @db.Uuid
+
+  /// Vị trí trong lộ trình, đếm từ 1. Lộ trình là một dãy cố định giống nhau với mọi
+  /// người học — cá nhân hoá chỉ bỏ bớt chương dựa trên bài test đầu vào, không đảo
+  /// thứ tự và không thêm bớt khoá.
+  orderIndex Int @map("order_index")
+
+  learningPath LearningPath @relation(fields: [learningPathId], references: [learningPathId], onDelete: Cascade)
+  course       Course       @relation(fields: [courseId], references: [courseId], onDelete: Cascade)
+
+  @@id([learningPathId, courseId])
+  /// Hai khoá không được cùng giữ một vị trí trong CÙNG một lộ trình. Khác lộ trình
+  /// thì trùng số thoải mái — đó chính là điều cột `pathOrder` cũ không cho phép.
+  @@unique([learningPathId, orderIndex])
+  @@index([courseId])
+  @@map("learning_path_courses")
+}
+
 model SkillChapter {
   skillId   String @map("skill_id") @db.Uuid
   chapterId String @map("chapter_id") @db.Uuid
@@ -404,7 +577,8 @@ model QuizQuestion {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   lesson  Lesson       @relation(fields: [lessonId], references: [lessonId], onDelete: Cascade)
-  options QuizOption[]
+  options            QuizOption[]
+  assessmentQuestions AssessmentQuestion[]
 
   @@unique([lessonId, orderIndex])
   @@map("quiz_questions")
@@ -616,6 +790,7 @@ model MeetingRoom {
   course       Course?              @relation(fields: [courseId], references: [courseId], onDelete: SetNull)
   host         User                 @relation(fields: [hostId], references: [userId], onDelete: Restrict)
   participants MeetingParticipant[]
+  recordings   MeetingRecording[]
 
   @@index([courseId])
   @@index([hostId])
@@ -623,21 +798,66 @@ model MeetingRoom {
   @@map("meeting_rooms")
 }
 
+/// Một lần ghi hình. Nhiều bản ghi cho một buổi họp là chuyện bình thường: giảng viên
+/// bấm dừng giữa giờ giải lao rồi ghi tiếp là ra hai file.
+model MeetingRecording {
+  recordingId   String @id @default(uuid(7)) @map("recording_id") @db.Uuid
+  meetingRoomId String @map("meeting_room_id") @db.Uuid
+
+  /// Định danh của tiến trình ghi bên LiveKit. UNIQUE vì nó là khoá để đối chiếu
+  /// trạng thái — một egress chỉ được ánh xạ tới đúng một hàng ở đây, nếu không thì
+  /// mỗi lần đối chiếu lại sinh thêm một bản ghi trùng.
+  egressId String          @unique @map("egress_id") @db.VarChar(64)
+  status   RecordingStatus @default(RECORDING)
+
+  /// URL công khai của file. NULL cho tới khi status = READY.
+  url String? @db.Text
+
+  /// Đường dẫn object trong bucket. Giữ riêng vì cần để xoá file, và không suy chắc
+  /// chắn ra được từ URL.
+  storageKey String? @map("storage_key") @db.Text
+
+  durationSec Int? @map("duration_sec")
+
+  /// BigInt chứ không phải Int: một buổi 8 tiếng có thể vượt trần 2GB của int4. Lưu ý
+  /// khi đọc ra — BigInt của JavaScript không đi qua JSON.stringify được, nên tầng DTO
+  /// phải đổi sang Number (an toàn tới 9 PB).
+  sizeBytes BigInt? @map("size_bytes")
+
+  startedAt DateTime  @map("started_at") @db.Timestamptz(6)
+  endedAt   DateTime? @map("ended_at") @db.Timestamptz(6)
+  /// Lý do thất bại do LiveKit trả về. Giữ lại để còn biết vì sao mà sửa.
+  error     String?   @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  meetingRoom MeetingRoom @relation(fields: [meetingRoomId], references: [meetingRoomId], onDelete: Cascade)
+
+  @@index([meetingRoomId])
+  /// Job đối chiếu quét đúng những bản còn dang dở.
+  @@index([status])
+  @@map("meeting_recordings")
+}
+
 model MeetingParticipant {
   meetingRoomId String @map("meeting_room_id") @db.Uuid
   userId        String @map("user_id") @db.Uuid
 
-  role      MeetingParticipantRole @default(PARTICIPANT)
-  invitedAt DateTime               @default(now()) @map("invited_at") @db.Timestamptz(6)
+  role      MeetingParticipantRole   @default(PARTICIPANT)
+  status    MeetingParticipantStatus @default(ADMITTED)
+  invitedAt DateTime                 @default(now()) @map("invited_at") @db.Timestamptz(6)
   /// invitedAt records who was invited; joinedAt/leftAt record who actually showed
   /// up and for how long.
-  joinedAt  DateTime?              @map("joined_at") @db.Timestamptz(6)
-  leftAt    DateTime?              @map("left_at") @db.Timestamptz(6)
+  joinedAt  DateTime?                @map("joined_at") @db.Timestamptz(6)
+  leftAt    DateTime?                @map("left_at") @db.Timestamptz(6)
 
   meetingRoom MeetingRoom @relation(fields: [meetingRoomId], references: [meetingRoomId], onDelete: Cascade)
   user        User        @relation(fields: [userId], references: [userId], onDelete: Cascade)
 
   @@id([meetingRoomId, userId])
   @@index([userId])
+  /// Màn hình "ai đang chờ duyệt" của chủ phòng, chạy lại mỗi lần có người gõ cửa.
+  @@index([meetingRoomId, status], map: "meeting_participants_room_status_idx")
   @@map("meeting_participants")
 }

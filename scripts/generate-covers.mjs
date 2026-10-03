@@ -93,6 +93,103 @@ const COVERS = [
     to: '#20124A',
     accent: '#C4B0F5',
   },
+
+  // --- Lộ trình Frontend React ---
+  //
+  // Vẫn dùng màu nhận diện thật của từng công nghệ như bảy khoá trên. Hai khoá
+  // JavaScript ở đây cố ý lệch tông so với cover 'javascript' của khoá backend —
+  // ba khoá cùng nói về JavaScript nằm chung một danh mục, nhìn giống hệt nhau thì
+  // người học không phân biệt được khoá nào là khoá nào.
+  {
+    slug: 'javascript-es6',
+    title: 'JavaScript ES6+',
+    tagline: 'Cú pháp hiện đại cho lập trình web',
+    monogram: 'ES',
+    from: '#EAB308',
+    to: '#422006',
+    accent: '#FDE68A',
+  },
+  {
+    slug: 'javascript-async',
+    title: 'JavaScript\nNâng cao & Async',
+    tagline: 'Closure, Promise và Event Loop',
+    monogram: 'JS',
+    from: '#B45309',
+    to: '#3B1D05',
+    accent: '#FCD9A5',
+  },
+  {
+    slug: 'react-fundamentals',
+    title: 'React\nFundamentals',
+    tagline: 'Component, state và vòng đời render',
+    monogram: 'RE',
+    from: '#0EA5B7',
+    to: '#0A3A42',
+    accent: '#7DE3F0',
+  },
+  {
+    slug: 'react-hooks-patterns',
+    title: 'React Hooks\n& Patterns',
+    tagline: 'Hook nâng cao và mẫu tái sử dụng',
+    monogram: 'HK',
+    from: '#0284C7',
+    to: '#082F49',
+    accent: '#8ACDF5',
+  },
+  {
+    slug: 'redux-toolkit',
+    title: 'Redux Toolkit',
+    tagline: 'Quản lý state cho ứng dụng lớn',
+    monogram: 'RX',
+    from: '#764ABC',
+    to: '#26123F',
+    accent: '#C7A8F0',
+  },
+  {
+    slug: 'react-router-api',
+    title: 'React Router\n& API',
+    tagline: 'Định tuyến và tích hợp dữ liệu',
+    monogram: 'RR',
+    from: '#CA4245',
+    to: '#3F1314',
+    accent: '#F4A3A5',
+  },
+  {
+    slug: 'typescript-react',
+    title: 'TypeScript\nfor React',
+    tagline: 'Định kiểu cho component và hook',
+    monogram: 'TR',
+    from: '#2563EB',
+    to: '#122A5C',
+    accent: '#A5C4F7',
+  },
+  {
+    slug: 'styling-ui',
+    title: 'Styling\n& UI Systems',
+    tagline: 'Tailwind, design token và a11y',
+    monogram: 'UI',
+    from: '#DB2777',
+    to: '#44112A',
+    accent: '#F7A8CE',
+  },
+  {
+    slug: 'testing-performance',
+    title: 'Testing\n& Performance',
+    tagline: 'Vitest, Playwright và tối ưu tải trang',
+    monogram: 'QA',
+    from: '#15803D',
+    to: '#0A2E17',
+    accent: '#93E0AC',
+  },
+  {
+    slug: 'nextjs-fullstack',
+    title: 'Next.js\nFull-stack',
+    tagline: 'App Router, SSR và kiến trúc hệ thống',
+    monogram: 'NX',
+    from: '#404040',
+    to: '#0A0A0A',
+    accent: '#D4D4D4',
+  },
 ];
 
 /** SVG là XML: năm ký tự này phải escape, nếu không "Authentication & Security"

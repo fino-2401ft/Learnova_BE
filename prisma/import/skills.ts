@@ -166,6 +166,122 @@ const SKILLS: SkillEntry[] = [
     domain: 'Security',
     chapters: ['course-07-auth-security/module-03-security-best-practices'],
   },
+
+  // -------------------------------------------------------------------------
+  // Lộ trình Frontend React
+  // -------------------------------------------------------------------------
+  //
+  // MỘT kỹ năng cho MỘT khoá, thô hơn hẳn phần backend ở trên (nơi một khoá tách
+  // thành hai tới ba kỹ năng). Có chủ ý: mỗi kỹ năng cần 4 câu × 2 đề để chấm hồ sơ,
+  // nên chia mịn ở đây sẽ đội chi phí soạn đề lên gấp đôi mà không đổi được điều gì —
+  // lộ trình Frontend chưa có bài kiểm tra đầu vào riêng, và đơn vị mà người học thực
+  // sự cân nhắc bỏ qua là cả một khoá chứ không phải một chương lẻ.
+  //
+  // Chia mịn hơn lúc nào cũng làm được sau: tách một `chapters` thành hai mục là thao
+  // tác cục bộ, và `code` của những kỹ năng còn lại không đổi nên hồ sơ đã chấm vẫn
+  // giữ nguyên.
+  {
+    code: 'fe-js-modern',
+    name: 'JavaScript hiện đại',
+    domain: 'Frontend',
+    chapters: [
+      'course-08-javascript-es6/module-01-nen-tang-cu-phap',
+      'course-08-javascript-es6/module-02-du-lieu-va-dom',
+      'course-08-javascript-es6/module-03-cu-phap-hien-dai-va-co-che-ben-duoi',
+    ],
+  },
+  {
+    code: 'fe-js-async',
+    name: 'JavaScript bất đồng bộ',
+    domain: 'Frontend',
+    chapters: [
+      'course-09-javascript-async/module-01-closure-va-bat-dong-bo',
+      'course-09-javascript-async/module-02-xu-ly-loi-va-event-loop',
+      'course-09-javascript-async/module-03-prototype-web-api-va-mau-thiet-ke',
+    ],
+  },
+  {
+    code: 'react-core',
+    name: 'React nền tảng',
+    domain: 'React',
+    chapters: [
+      'course-10-react-fundamentals/module-01-khoi-dong-va-component',
+      'course-10-react-fundamentals/module-02-state-va-tuong-tac-nguoi-dung',
+      'course-10-react-fundamentals/module-03-side-effect-co-che-render-va-form',
+    ],
+  },
+  {
+    code: 'react-hooks',
+    name: 'React Hooks & Patterns',
+    domain: 'React',
+    chapters: [
+      'course-11-react-hooks-patterns/module-01-chia-se-va-quan-ly-state',
+      'course-11-react-hooks-patterns/module-02-toi-uu-va-tai-su-dung-logic',
+      'course-11-react-hooks-patterns/module-03-hook-nang-cao-va-mau-component',
+    ],
+  },
+  {
+    code: 'react-state',
+    name: 'Quản lý state',
+    domain: 'React',
+    chapters: [
+      'course-12-redux-toolkit/module-01-redux-toolkit-nen-tang',
+      'course-12-redux-toolkit/module-02-rtk-query-va-thuc-hanh-tot',
+      'course-12-redux-toolkit/module-03-giai-phap-thay-the-redux',
+    ],
+  },
+  {
+    code: 'react-routing',
+    name: 'Định tuyến & tích hợp API',
+    domain: 'React',
+    chapters: [
+      'course-13-react-router-api/module-01-dinh-tuyen-voi-react-router',
+      'course-13-react-router-api/module-02-tich-hop-api-va-form',
+      'course-13-react-router-api/module-03-bao-mat-va-trien-khai',
+    ],
+  },
+  {
+    code: 'ts-react',
+    name: 'TypeScript cho React',
+    domain: 'Frontend',
+    chapters: [
+      'course-14-typescript-react/module-01-nen-tang-typescript',
+      'course-14-typescript-react/module-02-dinh-kieu-cho-react',
+      'course-14-typescript-react/module-03-dinh-kieu-cho-he-sinh-thai',
+      'course-14-typescript-react/module-04-ky-thuat-nang-cao-va-chuyen-doi',
+    ],
+  },
+  {
+    code: 'fe-styling',
+    name: 'Giao diện & Design System',
+    domain: 'Frontend',
+    chapters: [
+      'course-15-styling-ui/module-01-css-modules-va-tailwind',
+      'course-15-styling-ui/module-02-thu-vien-ui-va-hieu-ung',
+      'course-15-styling-ui/module-03-design-system-va-kha-nang-tiep-can',
+    ],
+  },
+  {
+    code: 'fe-quality',
+    name: 'Kiểm thử & hiệu năng',
+    domain: 'Frontend',
+    chapters: [
+      'course-16-testing-performance/module-01-nen-tang-kiem-thu',
+      'course-16-testing-performance/module-02-kiem-thu-nang-cao',
+      'course-16-testing-performance/module-03-toi-uu-hieu-nang',
+    ],
+  },
+  {
+    code: 'nextjs',
+    name: 'Next.js & Full-stack React',
+    domain: 'React',
+    chapters: [
+      'course-17-nextjs-fullstack/module-01-app-router-nen-tang',
+      'course-17-nextjs-fullstack/module-02-lay-du-lieu-va-mutation',
+      'course-17-nextjs-fullstack/module-03-xac-thuc-va-seo',
+      'course-17-nextjs-fullstack/module-04-kien-truc-va-trien-khai',
+    ],
+  },
 ];
 
 export interface SkillImportResult {
