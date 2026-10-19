@@ -1,4 +1,4 @@
-import { Role } from '@prisma/client';
+import { Role, User } from '@prisma/client';
 
 /**
  * A person as everyone else is allowed to see them.
@@ -17,4 +17,27 @@ export interface UserSummaryDto {
   avatarUrl: string | null;
   /** Lets the picker label mentors without a second request. */
   role: Role;
+}
+
+/**
+ * The caller's own account — the only place `email` is allowed to leave the API
+ * outside of auth responses. Same fields as AuthUserDto so the frontend can swap
+ * the session user without a second shape.
+ */
+export interface MeDto {
+  userId: string;
+  username: string;
+  email: string;
+  role: Role;
+  avatarUrl: string | null;
+}
+
+export function toMeDto(user: User): MeDto {
+  return {
+    userId: user.userId,
+    username: user.username,
+    email: user.email,
+    role: user.role,
+    avatarUrl: user.avatarUrl,
+  };
 }

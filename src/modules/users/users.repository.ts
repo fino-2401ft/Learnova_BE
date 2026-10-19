@@ -69,4 +69,14 @@ export class UsersRepository {
       data: { ...data, role: Role.MENTEE, mentee: { create: {} } },
     });
   }
+
+  updateProfile(
+    userId: string,
+    data: { email?: string; username?: string },
+  ): Promise<User> {
+    return this.prisma.user.update({
+      where: { userId },
+      data,
+    });
+  }
 }

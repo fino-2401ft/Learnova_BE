@@ -1,4 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { User } from '@prisma/client';
 
 import { CreateMenteeData, UsersRepository } from './users.repository';
@@ -6,7 +10,8 @@ import {
   DEFAULT_USER_SEARCH_LIMIT,
   SearchUsersQuery,
 } from './dto/search-users.query';
-import { UserSummaryDto } from './dto/user.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { MeDto, toMeDto, UserSummaryDto } from './dto/user.dto';
 
 @Injectable()
 export class UsersService {
@@ -39,5 +44,45 @@ export class UsersService {
 
   createMentee(data: CreateMenteeData): Promise<User> {
     return this.repository.createMentee(data);
+  }
+
+  /**
+   * Update the caller's own username and/or email.
+   *
+   * Uniqueness conflicts surface as Prisma P2002 and are mapped by the global
+   * filter — no need to pre-check, and a pre-check would race anyway.
+   */
+  async updateProfile(userId: string, dto: UpdateProfileDto): Promise<MeDto> {
+    if (dto.email === undefined && dto.username === undefined) {
+      throw new BadRequestException({
+        code: 'EMPTY_UPDATE',
+        message: 'Provide at least one of email or username',
+      });
+    }
+
+    const existing = await this.repository.findById(userId);
+    if (!existing) {
+      throw new NotFoundException({
+        code: 'USER_NOT_FOUND',
+        message: 'User not found',
+      });
+    }
+
+    const data: { email?: string; username?: string } = {};
+    if (dto.email !== undefined && dto.email !== existing.email) {
+      data.email = dto.email;
+    }
+    if (dto.username !== undefined && dto.username !== existing.username) {
+      data.username = dto.username;
+    }
+
+    // Nothing actually changed (same values re-submitted) — still succeed with
+    // the current row so the client can treat save as idempotent.
+    if (Object.keys(data).length === 0) {
+      return toMeDto(existing);
+    }
+
+    const updated = await this.repository.updateProfile(userId, data);
+    return toMeDto(updated);
   }
 }

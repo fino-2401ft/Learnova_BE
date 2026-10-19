@@ -1,17 +1,21 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
 import { SearchUsersQuery } from './dto/search-users.query';
-import { UserSummaryDto } from './dto/user.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { MeDto, UserSummaryDto } from './dto/user.dto';
 import { UsersService } from './users.service';
 
 /**
- * The user directory.
+ * The user directory and the caller's own profile.
  *
  * Not `@Public()`: the global JwtAuthGuard applies, so an anonymous request gets 401
  * before reaching the handler. That is load-bearing here — this is the one endpoint
  * that describes people rather than content.
+ *
+ * `PATCH me` lives under `/users` rather than the mentee-only `/me` controller so
+ * mentors and admins can edit their account too.
  */
 @Controller('users')
 export class UsersController {
@@ -34,5 +38,15 @@ export class UsersController {
     @CurrentUser('userId') viewerId: string,
   ): Promise<UserSummaryDto[]> {
     return this.users.search(query, viewerId);
+  }
+
+  /** Update the signed-in user's username and/or email. Avatar upload is separate. */
+  @Patch('me')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  updateMe(
+    @Body() dto: UpdateProfileDto,
+    @CurrentUser('userId') userId: string,
+  ): Promise<MeDto> {
+    return this.users.updateProfile(userId, dto);
   }
 }
